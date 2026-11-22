@@ -72,10 +72,59 @@ def decode_token(token: str) -> dict:
         )
 
 
+def ensure_utc(dt: Optional[datetime]) -> Optional[datetime]:
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
 def is_token_revoked(token: str, db: Session) -> bool:
     from app.models.token import RevokedToken
     record = db.query(RevokedToken).filter(RevokedToken.token == token).first()
-    return record is not None
+    if record is not None:
+        return True
+
+    # Check if all tokens for this user were revoked (e.g. upon password reset)
+    try:
+        payload = jwt.decode(
+            token,
+            settings.SECRET_KEY,
+            algorithms=[settings.ALGORITHM],
+            options={"verify_signature": False, "verify_exp": False},
+        )
+        user_id = payload.get("sub")
+        iat = payload.get("iat")
+        if user_id and iat:
+            token_iat = datetime.fromtimestamp(iat, tz=timezone.utc)
+            reset_revocations = db.query(RevokedToken).filter(
+                RevokedToken.user_id == user_id,
+                RevokedToken.token_type == "password_reset_revocation",
+            ).all()
+            for rev in reset_revocations:
+                if ensure_utc(rev.revoked_at) >= ensure_utc(token_iat):
+                    return True
+    except Exception:
+        pass
+
+    return False
+
+
+def revoke_all_user_tokens(user_id: str, db: Session):
+    """
+    Revokes all active sessions / tokens for a user (e.g. upon password reset).
+    """
+    import uuid
+    from app.models.token import RevokedToken
+    revoked = RevokedToken(
+        token=f"REVOKED_USER_SESSIONS_{user_id}_{uuid.uuid4()}",
+        token_type="password_reset_revocation",
+        user_id=user_id,
+        revoked_at=datetime.now(timezone.utc),
+    )
+    db.add(revoked)
+    db.commit()
 
 
 def revoke_token(token: str, db: Session, user_id: Optional[str] = None, token_type: str = "refresh"):

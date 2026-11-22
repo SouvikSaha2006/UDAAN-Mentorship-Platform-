@@ -102,6 +102,27 @@ class PasswordResetRequest(BaseModel):
         return v
 
 
+class VerifyResetTokenRequest(BaseModel):
+    email: EmailStr
+    reset_code: str = Field(..., alias="resetCode")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def normalize_email(cls, v: str) -> str:
+        if isinstance(v, str):
+            return v.strip().lower()
+        return v
+
+
+class VerifyResetTokenResponse(BaseModel):
+    ok: bool = True
+    valid: bool = True
+    message: str
+    email: Optional[EmailStr] = None
+
+
 class PasswordResetConfirm(BaseModel):
     email: EmailStr
     reset_code: str = Field(..., alias="resetCode")
@@ -115,6 +136,12 @@ class PasswordResetConfirm(BaseModel):
         if isinstance(v, str):
             return v.strip().lower()
         return v
+
+
+class PasswordResetResponse(BaseModel):
+    ok: bool = True
+    message: str
+    demo_code: Optional[str] = None
 
 
 class UserResponse(BaseModel):

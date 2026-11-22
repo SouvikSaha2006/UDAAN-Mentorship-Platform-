@@ -156,8 +156,26 @@ def upgrade() -> None:
     op.create_index(op.f('ix_revoked_tokens_token'), 'revoked_tokens', ['token'], unique=True)
     op.create_index(op.f('ix_revoked_tokens_user_id'), 'revoked_tokens', ['user_id'])
 
+    # 8. Password Reset Tokens table (Feature 7)
+    op.create_table(
+        'password_reset_tokens',
+        sa.Column('id', sa.String(length=36), nullable=False),
+        sa.Column('user_id', sa.String(length=36), nullable=False),
+        sa.Column('email', sa.String(length=255), nullable=False),
+        sa.Column('token_hash', sa.String(length=128), nullable=False),
+        sa.Column('expires_at', sa.DateTime(timezone=True), nullable=False),
+        sa.Column('used', sa.Boolean(), nullable=False, server_default=sa.text('0')),
+        sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
+        sa.Column('used_at', sa.DateTime(timezone=True), nullable=True),
+        sa.PrimaryKeyConstraint('id'),
+    )
+    op.create_index(op.f('ix_password_reset_tokens_email'), 'password_reset_tokens', ['email'])
+    op.create_index(op.f('ix_password_reset_tokens_token_hash'), 'password_reset_tokens', ['token_hash'])
+    op.create_index(op.f('ix_password_reset_tokens_user_id'), 'password_reset_tokens', ['user_id'])
+
 
 def downgrade() -> None:
+    op.drop_table('password_reset_tokens')
     op.drop_table('revoked_tokens')
     op.drop_table('user_accessibility_settings')
     op.drop_table('student_profiles')

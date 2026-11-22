@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import Column, String, DateTime, Text
+from sqlalchemy import Column, String, DateTime, Text, Boolean
 from app.database import Base
 
 
@@ -24,3 +24,22 @@ class RevokedToken(Base):
 
     def __repr__(self):
         return f"<RevokedToken user_id={self.user_id} token_type={self.token_type}>"
+
+
+class PasswordResetToken(Base):
+    """
+    Single-use password reset tokens / OTPs with 15-minute expiry (Feature 7).
+    """
+    __tablename__ = "password_reset_tokens"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(String(36), nullable=False, index=True)
+    email = Column(String(255), nullable=False, index=True)
+    token_hash = Column(String(128), nullable=False, index=True)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    used = Column(Boolean, default=False, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=get_utc_now, nullable=False)
+    used_at = Column(DateTime(timezone=True), nullable=True)
+
+    def __repr__(self):
+        return f"<PasswordResetToken email={self.email} used={self.used}>"

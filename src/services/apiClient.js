@@ -220,6 +220,13 @@ export const apiClient = {
       });
     },
 
+    async verifyResetToken(email, resetCode) {
+      return apiRequest('/auth/verify-reset-token', {
+        method: 'POST',
+        body: JSON.stringify({ email, resetCode }),
+      });
+    },
+
     async resetPassword(email, resetCode, newPassword) {
       return apiRequest('/auth/reset-password', {
         method: 'POST',

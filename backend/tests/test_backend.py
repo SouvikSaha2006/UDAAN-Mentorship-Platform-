@@ -596,3 +596,180 @@ def test_ownership_guards_profile_and_accessibility():
     )
     assert hack_a11y_put.status_code == 403
     assert "only modify your own" in hack_a11y_put.json()["detail"]
+
+
+def test_forgot_password_prevents_user_enumeration():
+    """
+    Feature 7: POST /api/v1/auth/forgot-password
+    Always returns 200 OK regardless of whether email exists, preventing enumeration.
+    """
+    res = client.post("/api/v1/auth/forgot-password", json={"email": "nonexistent.user@udaan.edu"})
+    assert res.status_code == 200
+    data = res.json()
+    assert data["ok"] is True
+    assert "dispatched" in data["message"].lower()
+
+    # Verify no token was created in DB for nonexistent user
+    db = TestingSessionLocal()
+    from app.models.token import PasswordResetToken
+    token = db.query(PasswordResetToken).filter(PasswordResetToken.email == "nonexistent.user@udaan.edu").first()
+    assert token is None
+    db.close()
+
+
+def test_forgot_password_valid_user_generates_hashed_token():
+    """
+    Feature 7: Valid user generates 15-minute single-use hashed token in DB.
+    """
+    res = client.post("/api/v1/auth/forgot-password", json={"email": "student@udaan.edu"})
+    assert res.status_code == 200
+    data = res.json()
+    assert data["ok"] is True
+    assert data["demo_code"] is not None
+    code = data["demo_code"]
+
+    db = TestingSessionLocal()
+    from app.models.token import PasswordResetToken
+    import hashlib
+    token_record = db.query(PasswordResetToken).filter(
+        PasswordResetToken.email == "student@udaan.edu",
+        PasswordResetToken.used == False,
+    ).order_by(PasswordResetToken.created_at.desc()).first()
+
+    assert token_record is not None
+    assert token_record.token_hash == hashlib.sha256(code.encode("utf-8")).hexdigest()
+    assert token_record.used is False
+    db.close()
+
+
+def test_verify_reset_token_endpoint():
+    """
+    Feature 7: POST /api/v1/auth/verify-reset-token
+    Validates token/OTP expiry and single-use status.
+    """
+    res = client.post("/api/v1/auth/forgot-password", json={"email": "student@udaan.edu"})
+    code = res.json()["demo_code"]
+
+    # Invalid code -> 400
+    bad_res = client.post("/api/v1/auth/verify-reset-token", json={
+        "email": "student@udaan.edu",
+        "resetCode": "WRONG-1234",
+    })
+    assert bad_res.status_code == 400
+    assert "invalid" in bad_res.json()["detail"].lower()
+
+    # Valid code -> 200
+    good_res = client.post("/api/v1/auth/verify-reset-token", json={
+        "email": "student@udaan.edu",
+        "resetCode": code,
+    })
+    assert good_res.status_code == 200
+    assert good_res.json()["valid"] is True
+
+
+def test_reset_password_success_and_revokes_active_tokens():
+    """
+    Feature 7: POST /api/v1/auth/reset-password
+    Updates password_hash, marks token used = True, and revokes active refresh/access tokens.
+    """
+    # 1. Login before reset to get active access and refresh tokens
+    login_before = client.post("/api/v1/auth/login", json={
+        "email": "student@udaan.edu",
+        "password": "Password@123",
+        "role": "student",
+    })
+    old_access_token = login_before.json()["access_token"]
+    old_refresh_token = login_before.json()["refresh_token"]
+
+    # 2. Request reset
+    req_res = client.post("/api/v1/auth/forgot-password", json={"email": "student@udaan.edu"})
+    code = req_res.json()["demo_code"]
+
+    # 3. Confirm reset
+    new_pass = "UpdatedSecurePassword@2026"
+    confirm_res = client.post("/api/v1/auth/reset-password", json={
+        "email": "student@udaan.edu",
+        "resetCode": code,
+        "newPassword": new_pass,
+    })
+    assert confirm_res.status_code == 200
+    assert "updated successfully" in confirm_res.json()["message"].lower()
+
+    # 4. Token must be marked used = True (single-use enforcement)
+    db = TestingSessionLocal()
+    from app.models.token import PasswordResetToken
+    token_record = db.query(PasswordResetToken).filter(
+        PasswordResetToken.email == "student@udaan.edu"
+    ).order_by(PasswordResetToken.created_at.desc()).first()
+    assert token_record.used is True
+    db.close()
+
+    # 5. Trying to reuse same reset code fails with 400
+    reuse_res = client.post("/api/v1/auth/reset-password", json={
+        "email": "student@udaan.edu",
+        "resetCode": code,
+        "newPassword": "AnotherPassword@2026",
+    })
+    assert reuse_res.status_code == 400
+
+    # 6. Active tokens issued prior to password reset must now be revoked
+    me_res = client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {old_access_token}"})
+    assert me_res.status_code == 401
+
+    refresh_res = client.post("/api/v1/auth/refresh", json={"refresh_token": old_refresh_token})
+    assert refresh_res.status_code == 401
+
+    # 7. Old password fails
+    old_login = client.post("/api/v1/auth/login", json={
+        "email": "student@udaan.edu",
+        "password": "Password@123",
+        "role": "student",
+    })
+    assert old_login.status_code == 401
+
+    # 8. New password succeeds
+    new_login = client.post("/api/v1/auth/login", json={
+        "email": "student@udaan.edu",
+        "password": new_pass,
+        "role": "student",
+    })
+    assert new_login.status_code == 200
+    assert new_login.json()["user"]["email"] == "student@udaan.edu"
+
+
+def test_reset_password_expired_token_rejected():
+    """
+    Feature 7: Expired tokens (> 15 minutes) are rejected.
+    """
+    # 1. Request reset
+    req_res = client.post("/api/v1/auth/forgot-password", json={"email": "mentor@udaan.edu"})
+    code = req_res.json()["demo_code"]
+
+    # 2. Artificially expire the token in DB
+    db = TestingSessionLocal()
+    from app.models.token import PasswordResetToken
+    from datetime import datetime, timezone, timedelta
+    token_record = db.query(PasswordResetToken).filter(
+        PasswordResetToken.email == "mentor@udaan.edu",
+        PasswordResetToken.used == False,
+    ).first()
+    token_record.expires_at = datetime.now(timezone.utc) - timedelta(minutes=1)
+    db.commit()
+    db.close()
+
+    # 3. Verify fails with expired
+    verify_res = client.post("/api/v1/auth/verify-reset-token", json={
+        "email": "mentor@udaan.edu",
+        "resetCode": code,
+    })
+    assert verify_res.status_code == 400
+    assert "expired" in verify_res.json()["detail"].lower()
+
+    # 4. Reset fails with expired
+    reset_res = client.post("/api/v1/auth/reset-password", json={
+        "email": "mentor@udaan.edu",
+        "resetCode": code,
+        "newPassword": "NewMentorPassword@123",
+    })
+    assert reset_res.status_code == 400
+    assert "expired" in reset_res.json()["detail"].lower()

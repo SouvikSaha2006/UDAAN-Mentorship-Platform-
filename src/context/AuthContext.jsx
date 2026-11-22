@@ -222,6 +222,34 @@ export function AuthProvider({ children }) {
     [currentUser, registeredUsers, persistUsers]
   );
 
+  // Feature 7: Password Reset API bindings
+  const requestPasswordReset = useCallback(async (email) => {
+    try {
+      const res = await apiClient.auth.forgotPassword(email);
+      return { ok: true, data: res };
+    } catch (err) {
+      return { ok: false, error: err.message || 'Unable to request password reset code.' };
+    }
+  }, []);
+
+  const verifyResetToken = useCallback(async (email, resetCode) => {
+    try {
+      const res = await apiClient.auth.verifyResetToken(email, resetCode);
+      return { ok: true, data: res };
+    } catch (err) {
+      return { ok: false, error: err.message || 'Invalid or expired verification code.' };
+    }
+  }, []);
+
+  const resetPassword = useCallback(async (email, resetCode, newPassword) => {
+    try {
+      const res = await apiClient.auth.resetPassword(email, resetCode, newPassword);
+      return { ok: true, data: res };
+    } catch (err) {
+      return { ok: false, error: err.message || 'Unable to reset password.' };
+    }
+  }, []);
+
   const resetPasswordDemo = useCallback(
     async (email, newPassword) => {
       try {
@@ -270,6 +298,9 @@ export function AuthProvider({ children }) {
         loginWithDemoRole,
         register,
         updateProfile,
+        requestPasswordReset,
+        verifyResetToken,
+        resetPassword,
         resetPasswordDemo,
         logout,
       }}

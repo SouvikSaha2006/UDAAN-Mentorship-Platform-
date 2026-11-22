@@ -10,6 +10,9 @@ from app.schemas.user import (
     LogoutRequest,
     PasswordResetRequest,
     PasswordResetConfirm,
+    VerifyResetTokenRequest,
+    VerifyResetTokenResponse,
+    PasswordResetResponse,
 )
 from app.schemas.academic import (
     DepartmentBase,
