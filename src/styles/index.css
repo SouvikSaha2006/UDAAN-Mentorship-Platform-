@@ -1,0 +1,174 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --udaan-font-scale: 1;
+  --udaan-line-height: 1.6;
+}
+
+html {
+  font-size: calc(16px * var(--udaan-font-scale));
+  scroll-behavior: smooth;
+}
+
+body {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  line-height: var(--udaan-line-height);
+  overflow-x: hidden;
+}
+
+/* Accessibility Mode: Dyslexia-Friendly Font */
+html.dyslexia-font body,
+html.dyslexia-font * {
+  font-family: 'Comic Sans MS', 'Verdana', 'Segoe UI', sans-serif !important;
+  letter-spacing: 0.03em;
+  word-spacing: 0.08em;
+}
+
+/* Accessibility Mode: Line Spacing */
+html.line-spacing-relaxed body p,
+html.line-spacing-relaxed body li,
+html.line-spacing-relaxed body span,
+html.line-spacing-relaxed body td {
+  line-height: var(--udaan-line-height);
+}
+
+/* Accessibility Mode: Highlight Links */
+html.highlight-links a,
+html.highlight-links button[role="link"] {
+  text-decoration: underline !important;
+  text-decoration-thickness: 2px !important;
+  text-underline-offset: 3px !important;
+  outline: 2px dashed #f59e0b !important;
+  outline-offset: 2px !important;
+  background-color: rgba(254, 243, 199, 0.45) !important;
+  color: #0f2042 !important;
+  border-radius: 4px;
+}
+
+html.dark.highlight-links a {
+  background-color: rgba(245, 158, 11, 0.25) !important;
+  color: #fde68a !important;
+}
+
+/* Accessibility Mode: High Contrast */
+html.high-contrast body {
+  background-color: #000000 !important;
+  color: #ffffff !important;
+}
+
+html.high-contrast .hc-surface,
+html.high-contrast main,
+html.high-contrast aside,
+html.high-contrast header,
+html.high-contrast section,
+html.high-contrast nav {
+  background-color: #000000 !important;
+  color: #ffffff !important;
+  border-color: #ffff00 !important;
+}
+
+html.high-contrast .card-surface {
+  background-color: #0a0a0a !important;
+  color: #ffffff !important;
+  border: 2px solid #ffff00 !important;
+}
+
+html.high-contrast button,
+html.high-contrast a {
+  border-color: #ffff00 !important;
+}
+
+html.high-contrast input,
+html.high-contrast select,
+html.high-contrast textarea {
+  background-color: #000000 !important;
+  color: #ffffff !important;
+  border: 2px solid #00ffff !important;
+}
+
+/* Accessibility Mode: Reading Mode */
+html.reading-mode body {
+  background-color: #fbf7ef !important;
+  color: #1f2937 !important;
+}
+
+html.dark.reading-mode body {
+  background-color: #181a1f !important;
+  color: #e5e7eb !important;
+}
+
+html.reading-mode main {
+  max-width: 960px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/* Accessibility Mode: Large Clickable Controls */
+html.large-controls button,
+html.large-controls a[href],
+html.large-controls input,
+html.large-controls select {
+  min-height: 44px;
+}
+
+/* Accessibility Mode: Reduced Motion */
+html.reduced-motion *,
+html.reduced-motion *::before,
+html.reduced-motion *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+  scroll-behavior: auto !important;
+}
+
+/* Accessibility Mode: Visible Focus Indicators */
+:focus-visible {
+  outline: 3px solid #254aeb;
+  outline-offset: 2px;
+}
+
+html.focus-enhanced :focus-visible,
+html.focus-enhanced :focus {
+  outline: 4px solid #f59e0b !important;
+  outline-offset: 3px !important;
+  box-shadow: 0 0 0 6px rgba(37, 74, 235, 0.25) !important;
+}
+
+/* Skip to main content link */
+.skip-link {
+  position: fixed;
+  top: -100px;
+  left: 16px;
+  z-index: 9999;
+  background: #0f2042;
+  color: #ffffff;
+  padding: 10px 18px;
+  border-radius: 8px;
+  font-weight: 600;
+  transition: top 0.15s ease;
+}
+
+.skip-link:focus {
+  top: 16px;
+}
+
+/* Custom utility classes for UDAAN design system */
+@layer components {
+  .card-surface {
+    @apply bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl shadow-card transition-all duration-200;
+  }
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl bg-royal-600 hover:bg-royal-700 active:bg-royal-800 text-white font-semibold px-4 py-2.5 text-sm shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .btn-secondary {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700/80 text-slate-800 dark:text-slate-100 font-semibold px-4 py-2.5 text-sm transition-all disabled:opacity-50;
+  }
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 font-medium px-3 py-2 text-sm transition-all;
+  }
+  .input-field {
+    @apply w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3.5 py-2.5 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:border-royal-500 focus:outline-none focus:ring-2 focus:ring-royal-500/20 transition-all;
+  }
+}
