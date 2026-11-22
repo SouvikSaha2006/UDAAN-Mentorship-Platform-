@@ -1,0 +1,57 @@
+from app.schemas.user import (
+    UserRole,
+    UserBase,
+    UserRegister,
+    UserLogin,
+    UserResponse,
+    TokenResponse,
+    PasswordResetRequest,
+    PasswordResetConfirm,
+)
+from app.schemas.academic import (
+    DepartmentBase,
+    DepartmentCreate,
+    DepartmentUpdate,
+    DepartmentResponse,
+    CourseBase,
+    CourseCreate,
+    CourseUpdate,
+    CourseResponse,
+)
+from app.schemas.student_profile import (
+    StudentProfileBase,
+    StudentProfileCreate,
+    StudentProfileUpdate,
+    StudentProfileResponse,
+)
+from app.schemas.accessibility import (
+    AccessibilitySettingsBase,
+    AccessibilitySettingsUpdate,
+    AccessibilitySettingsResponse,
+)
+
+__all__ = [
+    "UserRole",
+    "UserBase",
+    "UserRegister",
+    "UserLogin",
+    "UserResponse",
+    "TokenResponse",
+    "PasswordResetRequest",
+    "PasswordResetConfirm",
+    "DepartmentBase",
+    "DepartmentCreate",
+    "DepartmentUpdate",
+    "DepartmentResponse",
+    "CourseBase",
+    "CourseCreate",
+    "CourseUpdate",
+    "CourseResponse",
+    "StudentProfileBase",
+    "StudentProfileCreate",
+    "StudentProfileUpdate",
+    "StudentProfileResponse",
+    "AccessibilitySettingsBase",
+    "AccessibilitySettingsUpdate",
+    "AccessibilitySettingsResponse",
+]

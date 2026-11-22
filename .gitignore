@@ -3,3 +3,18 @@ dist
 .vite
 .DS_Store
 *.local
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+*.db
+*.sqlite3
+.pytest_cache/
+.coverage
+htmlcov/
