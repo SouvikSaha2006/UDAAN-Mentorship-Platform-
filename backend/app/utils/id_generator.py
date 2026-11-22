@@ -56,8 +56,9 @@ def generate_student_id(
             row = cursor_res.fetchone()
             cursor_res.close()
             next_seq = row[0]
-            db.flush()
+            db.commit()
         except Exception:
+            db.rollback()
             # Fallback ORM query with for update
             seq = db.query(StudentIDSequence).filter(
                 StudentIDSequence.year == year,
@@ -76,6 +77,6 @@ def generate_student_id(
             else:
                 seq.last_seq += 1
                 next_seq = seq.last_seq
-            db.flush()
+            db.commit()
 
     return f"{prefix}-{year}-{clean_dept}-{next_seq:04d}"

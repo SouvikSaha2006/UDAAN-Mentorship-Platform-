@@ -390,3 +390,209 @@ def test_accessibility_settings_persistence():
     assert updated_a11y["reducedMotion"] is True
     assert updated_a11y["readingMode"] is True
     assert updated_a11y["lineSpacing"] == 1.8
+
+
+def test_auth_registration_full_payload_and_tokens():
+    """
+    Feature 1: Student Registration
+    Verifies full student registration with specially abled fields,
+    atomic creation of User, StudentProfile, UserAccessibilitySettings,
+    and return of access_token, refresh_token, and hydrated entities without password_hash.
+    """
+    payload = {
+        "name": "Ananya Roy",
+        "email": "ananya.roy@udaan.edu",
+        "role": "student",
+        "password": "Password@123",
+        "confirmPassword": "Password@123",
+        "department": "Computer Science & Engineering",
+        "course": "B.Tech Computer Science & Engineering",
+        "semester": "3rd Semester",
+        "phone": "+91 91234 56789",
+        "disabilityType": "Hearing Impairment",
+        "disabilityPercentage": 75.0,
+        "assistiveDevices": ["Hearing Aid", "Live Captions"],
+        "preferredCommunication": "sign language",
+        "accommodationNeeds": "Sign language interpreter for live lectures and captioned materials",
+        "udidNumber": "DL021052003009912",
+    }
+    res = client.post("/api/v1/auth/register", json=payload)
+    assert res.status_code == 201
+    data = res.json()
+
+    # 1. Check tokens
+    assert "access_token" in data
+    assert "refresh_token" in data
+    assert data["token_type"] == "bearer"
+
+    # 2. Check user
+    user = data["user"]
+    assert user["email"] == "ananya.roy@udaan.edu"
+    assert user["role"] == "student"
+    assert user["studentId"].startswith("UDN-2026-CSE-")
+    assert "password_hash" not in user
+
+    # 3. Check profile
+    profile = data["profile"]
+    assert profile is not None
+    assert profile["fullName"] == "Ananya Roy"
+    assert profile["disabilityType"] == "Hearing Impairment"
+    assert profile["disabilityPercentage"] == 75.0
+    assert profile["preferredCommunication"] == "sign language"
+    assert "Live Captions" in profile["assistiveDevices"]
+    assert profile["udidNumber"] == "DL021052003009912"
+    assert profile["semester"] == 3
+
+    # 4. Check accessibility settings
+    a11y = data["accessibility_settings"]
+    assert a11y is not None
+    assert a11y["fontScale"] == 1.0
+
+
+def test_auth_login_hydrates_user_profile_and_accessibility():
+    """
+    Feature 2: Login session hydration
+    Verifies that logging in returns hydrated user, profile, and accessibility settings.
+    """
+    response = client.post("/api/v1/auth/login", json={
+        "email": "student@udaan.edu",
+        "password": "Password@123",
+        "role": "student",
+    })
+    assert response.status_code == 200
+    data = response.json()
+    assert "access_token" in data
+    assert "refresh_token" in data
+    assert data["user"]["email"] == "student@udaan.edu"
+    assert data["profile"] is not None
+    assert data["profile"]["studentId"] == "UDN-2026-CSE-0001"
+    assert data["accessibility_settings"] is not None
+    assert data["accessibility_settings"]["fontScale"] == 1.15
+    assert data["accessibility_settings"]["highContrast"] is True
+
+
+def test_auth_me_session_hydration():
+    """
+    Feature 2 & 3: GET /api/v1/auth/me session hydration for reload.
+    """
+    login_res = client.post("/api/v1/auth/login", json={
+        "email": "student@udaan.edu",
+        "password": "Password@123",
+        "role": "student",
+    })
+    token = login_res.json()["access_token"]
+    
+    me_res = client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {token}"})
+    assert me_res.status_code == 200
+    me_data = me_res.json()
+    assert me_data["user"]["email"] == "student@udaan.edu"
+    assert me_data["profile"]["studentId"] == "UDN-2026-CSE-0001"
+    assert me_data["accessibility_settings"]["fontScale"] == 1.15
+
+
+def test_auth_refresh_token_lifecycle():
+    """
+    Feature 2 & 3: POST /api/v1/auth/refresh lifecycle.
+    """
+    login_res = client.post("/api/v1/auth/login", json={
+        "email": "student@udaan.edu",
+        "password": "Password@123",
+        "role": "student",
+    })
+    refresh_token = login_res.json()["refresh_token"]
+
+    refresh_res = client.post("/api/v1/auth/refresh", json={"refresh_token": refresh_token})
+    assert refresh_res.status_code == 200
+    new_data = refresh_res.json()
+    assert "access_token" in new_data
+    assert "refresh_token" in new_data
+    assert new_data["user"]["email"] == "student@udaan.edu"
+
+
+def test_auth_logout_revokes_tokens():
+    """
+    Feature 2 & 3: POST /api/v1/auth/logout revokes tokens in DB blacklist.
+    Subsequent use of the revoked access token or refresh token must fail with 401.
+    """
+    login_res = client.post("/api/v1/auth/login", json={
+        "email": "student@udaan.edu",
+        "password": "Password@123",
+        "role": "student",
+    })
+    access_token = login_res.json()["access_token"]
+    refresh_token = login_res.json()["refresh_token"]
+
+    logout_res = client.post(
+        "/api/v1/auth/logout",
+        json={"refresh_token": refresh_token},
+        headers={"Authorization": f"Bearer {access_token}"},
+    )
+    assert logout_res.status_code == 200
+    assert "signed out successfully" in logout_res.json()["message"].lower()
+
+    # Subsequent request with revoked access token must fail
+    me_res = client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {access_token}"})
+    assert me_res.status_code == 401
+    assert "revoked" in me_res.json()["detail"].lower()
+
+    # Subsequent refresh with revoked refresh token must fail
+    refresh_res = client.post("/api/v1/auth/refresh", json={"refresh_token": refresh_token})
+    assert refresh_res.status_code == 401
+    assert "revoked" in refresh_res.json()["detail"].lower()
+
+
+def test_ownership_guards_profile_and_accessibility():
+    """
+    Feature 3: Ownership checks.
+    Students cannot modify or view other users' profiles or accessibility settings.
+    """
+    # 1. Register a student user
+    res_s2 = client.post("/api/v1/auth/register", json={
+        "name": "Student Two",
+        "email": "student.two@udaan.edu",
+        "role": "student",
+        "password": "Password@123",
+        "confirmPassword": "Password@123",
+        "department": "Computer Science & Engineering",
+        "course": "B.Tech Computer Science & Engineering",
+        "semester": "1st Semester",
+    })
+    assert res_s2.status_code == 201
+    s2_data = res_s2.json()
+    s2_user_id = s2_data["user"]["id"]
+    s2_token = s2_data["access_token"]
+
+    # 2. Get student 1's user ID
+    login_s1 = client.post("/api/v1/auth/login", json={
+        "email": "student@udaan.edu",
+        "password": "Password@123",
+        "role": "student",
+    })
+    s1_token = login_s1.json()["access_token"]
+    s1_user_id = login_s1.json()["user"]["id"]
+
+    # Student 2 tries to update Student 1's profile -> 403 Forbidden
+    hack_profile = client.put(
+        f"/api/v1/students/profile?user_id={s1_user_id}",
+        json={"fullName": "Hacked Profile"},
+        headers={"Authorization": f"Bearer {s2_token}"},
+    )
+    assert hack_profile.status_code == 403
+    assert "only modify your own" in hack_profile.json()["detail"]
+
+    # Student 2 tries to view Student 1's accessibility settings -> 403 Forbidden
+    hack_a11y_get = client.get(
+        f"/api/v1/accessibility?user_id={s1_user_id}",
+        headers={"Authorization": f"Bearer {s2_token}"},
+    )
+    assert hack_a11y_get.status_code == 403
+    assert "only view your own" in hack_a11y_get.json()["detail"]
+
+    # Student 2 tries to update Student 1's accessibility settings -> 403 Forbidden
+    hack_a11y_put = client.put(
+        f"/api/v1/accessibility?user_id={s1_user_id}",
+        json={"fontScale": 2.0},
+        headers={"Authorization": f"Bearer {s2_token}"},
+    )
+    assert hack_a11y_put.status_code == 403
+    assert "only modify your own" in hack_a11y_put.json()["detail"]

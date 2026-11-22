@@ -11,7 +11,7 @@ import { getRoleDashboardPath, getRoleLabel } from '../../utils/helpers';
 
 const loginSchema = z.object({
   role: z.enum(['student', 'mentor', 'faculty', 'support', 'admin']),
-  email: z.string().email('Please enter a valid email address'),
+  email: z.string().email('Please enter a valid institutional email address'),
   password: z.string().min(6, 'Password must be at least 6 characters'),
   rememberMe: z.boolean().optional(),
 });
@@ -25,6 +25,7 @@ export default function LoginPage() {
 
   const [showPassword, setShowPassword] = useState(false);
   const [authError, setAuthError] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const { login, loginWithDemoRole } = useAuth();
   const { showToast } = useToast();
   const navigate = useNavigate();
@@ -54,22 +55,40 @@ export default function LoginPage() {
     }
   }, [initialRole, setValue]);
 
-  const onSubmit = (values) => {
+  const onSubmit = async (values) => {
     setAuthError('');
-    const result = login(values);
-    if (!result.ok) {
-      setAuthError(result.error);
-      return;
+    setIsSubmitting(true);
+    try {
+      const result = await login(values);
+      if (!result.ok) {
+        setAuthError(result.error);
+        setIsSubmitting(false);
+        return;
+      }
+      showToast(`Welcome back, ${result.user.name}!`, 'success', 'Signed In');
+      navigate(getRoleDashboardPath(result.user.role));
+    } catch (err) {
+      setAuthError(err.message || 'Unable to sign in. Please check your credentials.');
+    } finally {
+      setIsSubmitting(false);
     }
-    showToast(`Welcome back, ${result.user.name}!`, 'success', 'Signed in (Demo)');
-    navigate(getRoleDashboardPath(result.user.role));
   };
 
-  const handleQuickDemo = (role) => {
-    const result = loginWithDemoRole(role);
-    if (result.ok) {
-      showToast(`Signed in as ${result.user.name} (${getRoleLabel(role)})`, 'success');
-      navigate(getRoleDashboardPath(role));
+  const handleQuickDemo = async (role) => {
+    setAuthError('');
+    setIsSubmitting(true);
+    try {
+      const result = await loginWithDemoRole(role);
+      if (result.ok) {
+        showToast(`Signed in as ${result.user.name} (${getRoleLabel(role)})`, 'success');
+        navigate(getRoleDashboardPath(role));
+      } else {
+        setAuthError(result.error || 'Failed to sign in with demo account.');
+      }
+    } catch (err) {
+      setAuthError(err.message || 'Demo sign in failed.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -81,7 +100,7 @@ export default function LoginPage() {
           <div className="flex items-center justify-between gap-3 mb-6">
             <div>
               <span className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-royal-600 dark:text-royal-400">
-                <ShieldCheck className="w-4 h-4" /> Frontend Demo Authentication
+                <ShieldCheck className="w-4 h-4" /> UDAAN Authentication
               </span>
               <h1 className="text-2xl font-extrabold text-navy-950 dark:text-white mt-1">
                 Sign In to UDAAN
@@ -95,7 +114,8 @@ export default function LoginPage() {
           {authError && (
             <div
               role="alert"
-              className="mb-5 rounded-xl border border-rose-200 dark:border-rose-800 bg-rose-50 dark:bg-rose-950/50 px-4 py-3 text-sm text-rose-800 dark:text-rose-200"
+              aria-live="assertive"
+              className="mb-5 rounded-xl border border-rose-200 dark:border-rose-800 bg-rose-50 dark:bg-rose-950/50 px-4 py-3 text-sm text-rose-800 dark:text-rose-200 font-medium"
             >
               {authError}
             </div>
@@ -137,7 +157,9 @@ export default function LoginPage() {
                 placeholder="name@udaan.edu"
               />
               {errors.email && (
-                <p className="text-xs text-rose-600 dark:text-rose-400 mt-1">{errors.email.message}</p>
+                <p role="alert" aria-live="polite" className="text-xs text-rose-600 dark:text-rose-400 mt-1 font-medium">
+                  {errors.email.message}
+                </p>
               )}
             </div>
 
@@ -152,7 +174,7 @@ export default function LoginPage() {
                   autoComplete="current-password"
                   {...register('password')}
                   className="input-field pr-11"
-                  placeholder="Enter demo password"
+                  placeholder="Enter your password"
                 />
                 <button
                   type="button"
@@ -164,7 +186,9 @@ export default function LoginPage() {
                 </button>
               </div>
               {errors.password && (
-                <p className="text-xs text-rose-600 dark:text-rose-400 mt-1">{errors.password.message}</p>
+                <p role="alert" aria-live="polite" className="text-xs text-rose-600 dark:text-rose-400 mt-1 font-medium">
+                  {errors.password.message}
+                </p>
               )}
             </div>
 
@@ -182,8 +206,12 @@ export default function LoginPage() {
               </Link>
             </div>
 
-            <button type="submit" className="btn-primary w-full py-3">
-              <LogIn className="w-4 h-4" /> Sign In as {getRoleLabel(selectedRole)}
+            <button
+              type="submit"
+              disabled={isSubmitting}
+              className="btn-primary w-full py-3 disabled:opacity-60"
+            >
+              <LogIn className="w-4 h-4" /> {isSubmitting ? 'Signing In...' : `Sign In as ${getRoleLabel(selectedRole)}`}
             </button>
           </form>
 
@@ -200,11 +228,11 @@ export default function LoginPage() {
           <div className="flex items-center gap-2 mb-3">
             <Sparkles className="w-5 h-5 text-royal-600 dark:text-royal-400" aria-hidden="true" />
             <h2 className="text-base font-extrabold text-navy-950 dark:text-white">
-              Quick Demo Role Accounts
+              Quick Role Sign-In
             </h2>
           </div>
           <p className="text-xs text-slate-500 dark:text-slate-400 mb-4 leading-relaxed">
-            Simulated frontend authentication via localStorage. Click any role below to sign in instantly (default password: <code className="font-mono font-bold">Password@123</code>).
+            Click any role below to authenticate directly with the real backend database (default password: <code className="font-mono font-bold">Password@123</code>).
           </p>
 
           <div className="space-y-2.5">
@@ -213,7 +241,8 @@ export default function LoginPage() {
                 key={acc.id}
                 type="button"
                 onClick={() => handleQuickDemo(acc.role)}
-                className="w-full text-left p-3.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/70 hover:border-royal-500 hover:bg-royal-50/40 dark:hover:bg-royal-950/30 transition-all flex items-center justify-between gap-3"
+                disabled={isSubmitting}
+                className="w-full text-left p-3.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/70 hover:border-royal-500 hover:bg-royal-50/40 dark:hover:bg-royal-950/30 transition-all flex items-center justify-between gap-3 disabled:opacity-60"
               >
                 <div className="min-w-0">
                   <p className="text-sm font-bold text-slate-900 dark:text-white truncate">{acc.name}</p>

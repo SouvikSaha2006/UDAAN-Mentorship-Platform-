@@ -101,7 +101,16 @@ def update_student_profile(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    target_user_id = user_id if (user_id and current_user.role in [UserRole.ADMIN, UserRole.SUPPORT]) else current_user.id
+    # Feature 3: Ownership check
+    if user_id and user_id != current_user.id:
+        if current_user.role not in [UserRole.ADMIN, UserRole.SUPPORT]:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied. You can only modify your own student profile.",
+            )
+        target_user_id = user_id
+    else:
+        target_user_id = current_user.id
 
     profile = db.query(StudentProfile).filter(StudentProfile.user_id == target_user_id).first()
     if not profile:

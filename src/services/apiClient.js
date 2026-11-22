@@ -17,12 +17,12 @@ export function formatAccessibleError(errorData, fallbackStatus = 500) {
       return 'Authentication required. Please sign in to your UDAAN account.';
     }
     if (fallbackStatus === 403) {
-      return 'Access denied. Administrator privileges are required to perform this action.';
+      return 'Access denied. You do not have permission to perform this action.';
     }
     if (fallbackStatus === 404) {
       return 'The requested academic record was not found.';
     }
-    return 'Unable to communicate with the UDAAN academic server. Please check your network connection.';
+    return 'Unable to communicate with the UDAAN server. Please verify your connection.';
   }
 
   // 1. FastAPI detail string
@@ -37,7 +37,7 @@ export function formatAccessibleError(errorData, fallbackStatus = 500) {
       const cleanField = String(field).replace(/_/g, ' ');
       return `${cleanField}: ${err.msg}`;
     });
-    return `Form validation error. ${fieldErrors.join('. ')}.`;
+    return `Form error: ${fieldErrors.join('. ')}.`;
   }
 
   // 3. Generic message object
@@ -45,7 +45,7 @@ export function formatAccessibleError(errorData, fallbackStatus = 500) {
     return errorData.message;
   }
 
-  return 'An unexpected server error occurred. Please try again.';
+  return 'An unexpected error occurred. Please try again.';
 }
 
 /**
@@ -138,7 +138,7 @@ export const apiClient = {
     },
   },
 
-  // Authentication & Session
+  // Feature 1, 2, 3: Authentication, Session & Token Management
   auth: {
     async register(payload) {
       const data = await apiRequest('/auth/register', {
@@ -147,6 +147,9 @@ export const apiClient = {
       });
       if (data?.access_token) {
         storageService.set('auth_token', data.access_token);
+        if (data.refresh_token) {
+          storageService.set('refresh_token', data.refresh_token);
+        }
         storageService.set('current_user', data.user);
       }
       return data;
@@ -159,22 +162,73 @@ export const apiClient = {
       });
       if (data?.access_token) {
         storageService.set('auth_token', data.access_token);
+        if (data.refresh_token) {
+          storageService.set('refresh_token', data.refresh_token);
+        }
         storageService.set('current_user', data.user);
       }
       return data;
     },
 
     async getMe() {
-      return apiRequest('/auth/me');
+      const data = await apiRequest('/auth/me');
+      if (data?.user) {
+        storageService.set('current_user', data.user);
+      }
+      return data;
     },
 
-    logout() {
-      storageService.remove('auth_token');
-      storageService.remove('current_user');
+    async refreshToken() {
+      const refreshToken = storageService.get('refresh_token', null);
+      if (!refreshToken) {
+        throw new Error('No refresh token available.');
+      }
+      const data = await apiRequest('/auth/refresh', {
+        method: 'POST',
+        body: JSON.stringify({ refreshToken }),
+      });
+      if (data?.access_token) {
+        storageService.set('auth_token', data.access_token);
+        if (data.refresh_token) {
+          storageService.set('refresh_token', data.refresh_token);
+        }
+      }
+      return data;
+    },
+
+    async logout() {
+      const refreshToken = storageService.get('refresh_token', null);
+      try {
+        await apiRequest('/auth/logout', {
+          method: 'POST',
+          body: JSON.stringify({ refreshToken }),
+        });
+      } catch {
+        // Ignore logout network failures
+      } finally {
+        storageService.remove('auth_token');
+        storageService.remove('refresh_token');
+        storageService.remove('current_user');
+      }
+      return { ok: true };
+    },
+
+    async forgotPassword(email) {
+      return apiRequest('/auth/forgot-password', {
+        method: 'POST',
+        body: JSON.stringify({ email }),
+      });
+    },
+
+    async resetPassword(email, resetCode, newPassword) {
+      return apiRequest('/auth/reset-password', {
+        method: 'POST',
+        body: JSON.stringify({ email, resetCode, newPassword }),
+      });
     },
   },
 
-  // Accessibility Settings Sync
+  // Feature 2: Accessibility Settings Sync
   accessibility: {
     async getSettings() {
       return apiRequest('/accessibility');

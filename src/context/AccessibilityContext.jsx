@@ -44,6 +44,39 @@ export function AccessibilityProvider({ children }) {
     root.classList.toggle('focus-enhanced', Boolean(settings.focusEnhanced));
   }, [settings]);
 
+  const applySettings = useCallback((newSettings) => {
+    if (!newSettings || typeof newSettings !== 'object') return;
+    const normalized = {
+      ...(newSettings.font_scale !== undefined ? { fontScale: newSettings.font_scale } : {}),
+      ...(newSettings.fontScale !== undefined ? { fontScale: newSettings.fontScale } : {}),
+      ...(newSettings.dark_mode !== undefined ? { darkMode: newSettings.dark_mode } : {}),
+      ...(newSettings.darkMode !== undefined ? { darkMode: newSettings.darkMode } : {}),
+      ...(newSettings.high_contrast !== undefined ? { highContrast: newSettings.high_contrast } : {}),
+      ...(newSettings.highContrast !== undefined ? { highContrast: newSettings.highContrast } : {}),
+      ...(newSettings.highlight_links !== undefined ? { highlightLinks: newSettings.highlight_links } : {}),
+      ...(newSettings.highlightLinks !== undefined ? { highlightLinks: newSettings.highlightLinks } : {}),
+      ...(newSettings.dyslexia_font !== undefined ? { dyslexiaFont: newSettings.dyslexia_font } : {}),
+      ...(newSettings.dyslexiaFont !== undefined ? { dyslexiaFont: newSettings.dyslexiaFont } : {}),
+      ...(newSettings.reading_mode !== undefined ? { readingMode: newSettings.reading_mode } : {}),
+      ...(newSettings.readingMode !== undefined ? { readingMode: newSettings.readingMode } : {}),
+      ...(newSettings.line_spacing !== undefined ? { lineSpacing: newSettings.line_spacing } : {}),
+      ...(newSettings.lineSpacing !== undefined ? { lineSpacing: newSettings.lineSpacing } : {}),
+      ...(newSettings.large_controls !== undefined ? { largeControls: newSettings.large_controls } : {}),
+      ...(newSettings.largeControls !== undefined ? { largeControls: newSettings.largeControls } : {}),
+      ...(newSettings.reduced_motion !== undefined ? { reducedMotion: newSettings.reduced_motion } : {}),
+      ...(newSettings.reducedMotion !== undefined ? { reducedMotion: newSettings.reducedMotion } : {}),
+      ...(newSettings.focus_enhanced !== undefined ? { focusEnhanced: newSettings.focus_enhanced } : {}),
+      ...(newSettings.focusEnhanced !== undefined ? { focusEnhanced: newSettings.focusEnhanced } : {}),
+      ...(newSettings.written_notifications !== undefined ? { writtenNotifications: newSettings.written_notifications } : {}),
+      ...(newSettings.writtenNotifications !== undefined ? { writtenNotifications: newSettings.writtenNotifications } : {}),
+      ...(newSettings.caption_mode !== undefined ? { captionMode: newSettings.caption_mode } : {}),
+      ...(newSettings.captionMode !== undefined ? { captionMode: newSettings.captionMode } : {}),
+      ...(newSettings.tts_rate !== undefined ? { ttsRate: newSettings.tts_rate } : {}),
+      ...(newSettings.ttsRate !== undefined ? { ttsRate: newSettings.ttsRate } : {}),
+    };
+    setSettings((prev) => ({ ...prev, ...normalized }));
+  }, []);
+
   const updateSetting = useCallback((key, value) => {
     setSettings((prev) => ({ ...prev, [key]: value }));
   }, []);
@@ -99,6 +132,7 @@ export function AccessibilityProvider({ children }) {
     <AccessibilityContext.Provider
       value={{
         settings,
+        applySettings,
         updateSetting,
         toggleSetting,
         increaseFont,

@@ -1,5 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Header
 from sqlalchemy.orm import Session
+from typing import Optional
 from app.database import get_db
 from app.models.user import User, UserRole
 from app.models.academic import Department, Course
@@ -9,17 +10,28 @@ from app.schemas.user import (
     UserRegister,
     UserLogin,
     UserResponse,
-    TokenResponse,
+    AuthResponse,
+    SessionHydrationResponse,
+    RefreshTokenRequest,
+    LogoutRequest,
     PasswordResetRequest,
     PasswordResetConfirm,
 )
+from app.schemas.accessibility import AccessibilitySettingsResponse
+from app.schemas.student_profile import StudentProfileResponse
 from app.utils.security import (
     hash_password,
     verify_password,
     create_access_token,
+    create_refresh_token,
+    decode_token,
+    revoke_token,
+    is_token_revoked,
     get_current_user,
+    oauth2_scheme,
 )
 from app.utils.id_generator import generate_student_id
+from app.routers.students import enrich_profile_response
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
@@ -51,8 +63,8 @@ def build_user_response(user: User, db: Session) -> UserResponse:
         career_val = profile.career_goal
         bio_val = profile.bio
         avatar_col = profile.avatar_color or avatar_col
-        needs_list = profile.assistive_devices or []
-        if profile.accommodation_needs:
+        needs_list = list(profile.assistive_devices or [])
+        if profile.accommodation_needs and profile.accommodation_needs not in needs_list:
             needs_list.append(profile.accommodation_needs)
         if profile.department:
             dept_name = profile.department.name
@@ -83,17 +95,46 @@ def build_user_response(user: User, db: Session) -> UserResponse:
     )
 
 
-@router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
+def build_auth_response(user: User, db: Session) -> AuthResponse:
+    access_token = create_access_token(data={"sub": user.id, "email": user.email, "role": user.role.value})
+    refresh_token = create_refresh_token(data={"sub": user.id, "email": user.email, "role": user.role.value})
+    user_resp = build_user_response(user, db)
+    profile_resp = enrich_profile_response(user.student_profile) if user.student_profile else None
+    a11y_resp = user.accessibility_settings
+
+    return AuthResponse(
+        access_token=access_token,
+        refresh_token=refresh_token,
+        token_type="bearer",
+        accessToken=access_token,
+        refreshToken=refresh_token,
+        tokenType="bearer",
+        user=user_resp,
+        profile=profile_resp,
+        accessibility_settings=a11y_resp,
+        accessibilitySettings=a11y_resp,
+    )
+
+
+@router.post("/register", response_model=AuthResponse, status_code=status.HTTP_201_CREATED)
 def register_user(payload: UserRegister, db: Session = Depends(get_db)):
-    # Check if user already exists
+    """
+    Feature 1: Student & Mentor Registration
+    Inside a single atomic DB transaction:
+    1. Creates User with bcrypt password_hash
+    2. Generates unique student_id via Feature 6 atomic sequence
+    3. Creates StudentProfile with all personal, academic, and disability/accommodation attributes
+    4. Initializes default / personalized UserAccessibilitySettings
+    5. Returns 201 Created with JWT tokens + user + profile + accessibility settings
+    """
     existing = db.query(User).filter(User.email == payload.email).first()
     if existing:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="An account with this email already exists.",
+            detail="An account with this institutional email already exists.",
         )
 
-    # Create User
+    # 1. Create User
     new_user = User(
         email=payload.email,
         password_hash=hash_password(payload.password),
@@ -101,31 +142,44 @@ def register_user(payload: UserRegister, db: Session = Depends(get_db)):
         is_active=True,
     )
     db.add(new_user)
-    db.flush()  # populate new_user.id
+    db.flush()
 
-    # Create default Accessibility Settings
+    # 2. Initialize Accessibility Settings
+    # If student specified visual / cognitive needs during registration, apply them upfront
+    high_contrast = False
+    dyslexia_font = False
+    caption_mode = True
+    if payload.disability_type:
+        dt_lower = payload.disability_type.lower()
+        if "visual" in dt_lower or "vision" in dt_lower:
+            high_contrast = True
+        if "dyslexia" in dt_lower or "learning" in dt_lower:
+            dyslexia_font = True
+        if "hearing" in dt_lower:
+            caption_mode = True
+
     a11y = UserAccessibilitySettings(
         user_id=new_user.id,
+        high_contrast=high_contrast,
+        dyslexia_font=dyslexia_font,
+        caption_mode=caption_mode,
     )
     db.add(a11y)
 
-    # If student, create StudentProfile
+    # 3. Create StudentProfile if role is student
     if payload.role == UserRole.STUDENT:
-        # Match department if name provided
         dept = None
         if payload.department:
             dept = db.query(Department).filter(
                 (Department.name.ilike(f"%{payload.department}%")) | (Department.code.ilike(f"%{payload.department}%"))
             ).first()
 
-        # Match course if name provided
         course = None
         if payload.course:
             course = db.query(Course).filter(
                 (Course.name.ilike(f"%{payload.course}%")) | (Course.code.ilike(f"%{payload.course}%"))
             ).first()
 
-        # Parse semester
         semester_int = 1
         if payload.semester:
             if isinstance(payload.semester, int):
@@ -142,12 +196,21 @@ def register_user(payload: UserRegister, db: Session = Depends(get_db)):
                 detail=f"Semester {semester_int} is invalid for course {course.name}. Must be between 1 and {course.total_semesters}.",
             )
 
+        # Feature 6: Concurrency-Safe Student ID Generation
         student_id = generate_student_id(db, dept_code=dept.code if dept else "GEN", year=2026)
+
+        # Combine assistive devices and accessibility needs
+        devices = list(payload.assistive_devices or [])
+        if payload.accessibility_needs:
+            for need in payload.accessibility_needs:
+                if need not in devices:
+                    devices.append(need)
 
         profile = StudentProfile(
             user_id=new_user.id,
             student_id=student_id,
             full_name=payload.name.strip(),
+            phone=payload.phone,
             department_id=dept.id if dept else None,
             course_id=course.id if course else None,
             semester=semester_int,
@@ -156,35 +219,38 @@ def register_user(payload: UserRegister, db: Session = Depends(get_db)):
             profile_completion=70,
             cgpa=8.0,
             roll_number=f"{dept.code if dept else 'GEN'}-2026-{student_id.split('-')[-1]}",
+            # Specially Abled Student Fields
+            disability_type=payload.disability_type,
+            disability_percentage=payload.disability_percentage,
+            assistive_devices=devices,
+            preferred_communication=payload.preferred_communication or "text",
+            accommodation_needs=payload.accommodation_needs,
+            udid_number=payload.udid_number,
         )
         db.add(profile)
 
     db.commit()
     db.refresh(new_user)
 
-    token = create_access_token(data={"sub": new_user.id, "email": new_user.email, "role": new_user.role.value})
-    user_resp = build_user_response(new_user, db)
-
-    return TokenResponse(
-        access_token=token,
-        token_type="bearer",
-        user=user_resp,
-    )
+    return build_auth_response(new_user, db)
 
 
-@router.post("/login", response_model=TokenResponse)
+@router.post("/login", response_model=AuthResponse)
 def login_user(payload: UserLogin, db: Session = Depends(get_db)):
+    """
+    Feature 2: Login with JWT generation and hydration of user + profile + accessibility settings
+    """
     user = db.query(User).filter(User.email == payload.email).first()
     if not user or not verify_password(payload.password, user.password_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid email or password.",
+            detail="Invalid email or password. Please verify your credentials.",
         )
 
     if not user.is_active:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="User account is inactive.",
+            detail="Your account has been deactivated. Please contact the administrator.",
         )
 
     if payload.role and user.role != payload.role:
@@ -193,19 +259,78 @@ def login_user(payload: UserLogin, db: Session = Depends(get_db)):
             detail=f"Role mismatch: account is registered as '{user.role.value}', not '{payload.role.value}'.",
         )
 
-    token = create_access_token(data={"sub": user.id, "email": user.email, "role": user.role.value})
-    user_resp = build_user_response(user, db)
-
-    return TokenResponse(
-        access_token=token,
-        token_type="bearer",
-        user=user_resp,
-    )
+    return build_auth_response(user, db)
 
 
-@router.get("/me", response_model=UserResponse)
+@router.post("/refresh", response_model=AuthResponse)
+def refresh_token(payload: RefreshTokenRequest, db: Session = Depends(get_db)):
+    """
+    Feature 2: Refresh access token using a valid refresh token
+    """
+    if is_token_revoked(payload.refresh_token, db):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token has been revoked. Please sign in again.",
+        )
+
+    decoded = decode_token(payload.refresh_token)
+    if decoded.get("token_type") != "refresh":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid token type. Expected refresh token.",
+        )
+
+    user_id = decoded.get("sub")
+    user = db.query(User).filter(User.id == user_id, User.is_active == True).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found or inactive.",
+        )
+
+    # Revoke old refresh token (token rotation)
+    revoke_token(payload.refresh_token, db, user_id=user.id, token_type="refresh")
+
+    return build_auth_response(user, db)
+
+
+@router.post("/logout")
+def logout_user(
+    payload: Optional[LogoutRequest] = None,
+    auth_header: Optional[str] = Header(None, alias="Authorization"),
+    db: Session = Depends(get_db),
+):
+    """
+    Feature 2: Logout with refresh/access token revocation in database blacklist
+    """
+    # 1. Revoke refresh token if provided
+    if payload and payload.refresh_token:
+        revoke_token(payload.refresh_token, db, token_type="refresh")
+
+    # 2. Revoke current access token if present
+    if auth_header and auth_header.startswith("Bearer "):
+        token = auth_header.split("Bearer ")[1].strip()
+        revoke_token(token, db, token_type="access")
+
+    return {"ok": True, "message": "Signed out successfully. Tokens revoked."}
+
+
+@router.get("/me", response_model=SessionHydrationResponse)
 def get_me(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    return build_user_response(user, db)
+    """
+    Feature 2: Session Hydration for page reloads
+    Returns { user, profile, accessibility_settings }
+    """
+    user_resp = build_user_response(user, db)
+    profile_resp = enrich_profile_response(user.student_profile) if user.student_profile else None
+    a11y_resp = user.accessibility_settings
+
+    return SessionHydrationResponse(
+        user=user_resp,
+        profile=profile_resp,
+        accessibility_settings=a11y_resp,
+        accessibilitySettings=a11y_resp,
+    )
 
 
 @router.post("/forgot-password")

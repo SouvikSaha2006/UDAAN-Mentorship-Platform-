@@ -142,8 +142,23 @@ def upgrade() -> None:
     )
     op.create_index(op.f('ix_user_accessibility_settings_user_id'), 'user_accessibility_settings', ['user_id'], unique=True)
 
+    # 7. Revoked Tokens table (Feature 2 & 3: Blacklist for JWT tokens on logout)
+    op.create_table(
+        'revoked_tokens',
+        sa.Column('id', sa.String(length=36), nullable=False),
+        sa.Column('token', sa.Text(), nullable=False),
+        sa.Column('token_type', sa.String(length=50), nullable=False, server_default=sa.text("'refresh'")),
+        sa.Column('user_id', sa.String(length=36), nullable=True),
+        sa.Column('revoked_at', sa.DateTime(timezone=True), nullable=False),
+        sa.Column('expires_at', sa.DateTime(timezone=True), nullable=True),
+        sa.PrimaryKeyConstraint('id'),
+    )
+    op.create_index(op.f('ix_revoked_tokens_token'), 'revoked_tokens', ['token'], unique=True)
+    op.create_index(op.f('ix_revoked_tokens_user_id'), 'revoked_tokens', ['user_id'])
+
 
 def downgrade() -> None:
+    op.drop_table('revoked_tokens')
     op.drop_table('user_accessibility_settings')
     op.drop_table('student_profiles')
     op.drop_table('student_id_sequences')

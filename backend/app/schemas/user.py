@@ -3,6 +3,8 @@ from datetime import datetime
 from typing import Optional, Union, List, Any
 from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator, ConfigDict
 from app.models.user import UserRole
+from app.schemas.student_profile import StudentProfileResponse
+from app.schemas.accessibility import AccessibilitySettingsResponse
 
 
 class UserBase(BaseModel):
@@ -23,11 +25,23 @@ class UserRegister(BaseModel):
     role: UserRole = UserRole.STUDENT
     password: str = Field(..., min_length=6)
     confirm_password: Optional[str] = Field(None, alias="confirmPassword")
-    
-    # Registration optional fields matching RegisterPage.jsx
+    phone: Optional[str] = None
+
+    # Academic fields
     department: Optional[str] = "Computer Science & Engineering"
     course: Optional[str] = "B.Tech Computer Science"
     semester: Optional[Union[int, str]] = "1st Semester"
+
+    # Feature 1: Specially Abled Student Fields
+    disability_type: Optional[str] = Field(None, alias="disabilityType")
+    disability_percentage: Optional[float] = Field(None, alias="disabilityPercentage")
+    assistive_devices: Optional[List[str]] = Field(default_factory=list, alias="assistiveDevices")
+    accessibility_needs: Optional[List[str]] = Field(default_factory=list, alias="accessibilityNeeds")
+    preferred_communication: Optional[str] = Field("text", alias="preferredCommunication")
+    accommodation_needs: Optional[str] = Field(None, alias="accommodationNeeds")
+    udid_number: Optional[str] = Field(None, alias="udidNumber")
+
+    # Mentor registration fields
     qualification: Optional[str] = None
     experience_years: Optional[Union[int, str]] = Field(None, alias="experienceYears")
     expertise: Optional[str] = None
@@ -63,6 +77,18 @@ class UserLogin(BaseModel):
         if isinstance(v, str):
             return v.strip().lower()
         return v
+
+
+class RefreshTokenRequest(BaseModel):
+    refresh_token: str = Field(..., alias="refreshToken")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class LogoutRequest(BaseModel):
+    refresh_token: Optional[str] = Field(None, alias="refreshToken")
+
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class PasswordResetRequest(BaseModel):
@@ -116,7 +142,25 @@ class UserResponse(BaseModel):
     model_config = ConfigDict(populate_by_name=True, from_attributes=True)
 
 
-class TokenResponse(BaseModel):
+class AuthResponse(BaseModel):
     access_token: str
+    refresh_token: str
     token_type: str = "bearer"
+    accessToken: Optional[str] = None
+    refreshToken: Optional[str] = None
+    tokenType: Optional[str] = "bearer"
     user: UserResponse
+    profile: Optional[StudentProfileResponse] = None
+    accessibility_settings: Optional[AccessibilitySettingsResponse] = None
+    accessibilitySettings: Optional[AccessibilitySettingsResponse] = None
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class SessionHydrationResponse(BaseModel):
+    user: UserResponse
+    profile: Optional[StudentProfileResponse] = None
+    accessibility_settings: Optional[AccessibilitySettingsResponse] = None
+    accessibilitySettings: Optional[AccessibilitySettingsResponse] = None
+
+    model_config = ConfigDict(populate_by_name=True)
