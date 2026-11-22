@@ -1,12 +1,13 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Eye, EyeOff, UserPlus, ShieldCheck } from 'lucide-react';
+import { Eye, EyeOff, UserPlus, ShieldCheck, CheckCircle2 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { getRoleDashboardPath } from '../../utils/helpers';
+import { apiClient } from '../../services/apiClient';
 
 const registerSchema = z
   .object({
@@ -27,9 +28,30 @@ const registerSchema = z
     path: ['confirmPassword'],
   });
 
+const DEFAULT_DEPARTMENTS = [
+  { code: 'CSE', name: 'Computer Science & Engineering' },
+  { code: 'ECE', name: 'Electronics & Communication' },
+  { code: 'MDS', name: 'Mathematics & Data Science' },
+  { code: 'DES', name: 'Design & Humanities' },
+];
+
 export default function RegisterPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [departments, setDepartments] = useState(DEFAULT_DEPARTMENTS);
+  const [availableCourses, setAvailableCourses] = useState([]);
+  const [semesterOptions, setSemesterOptions] = useState([
+    '1st Semester',
+    '2nd Semester',
+    '3rd Semester',
+    '4th Semester',
+    '5th Semester',
+    '6th Semester',
+    '7th Semester',
+    '8th Semester',
+  ]);
+
   const { register: registerUser } = useAuth();
   const { showToast } = useToast();
   const navigate = useNavigate();
@@ -45,35 +67,127 @@ export default function RegisterPage() {
     defaultValues: {
       role: 'student',
       department: 'Computer Science & Engineering',
-      course: 'B.Tech Computer Science',
-      semester: '3rd Semester',
+      course: 'B.Tech Computer Science & Engineering',
+      semester: '1st Semester',
     },
   });
 
   const role = watch('role');
+  const selectedDepartment = watch('department');
+  const selectedCourse = watch('course');
 
-  const onSubmit = (values) => {
-    setErrorMsg('');
-    const res = registerUser(values);
-    if (!res.ok) {
-      setErrorMsg(res.error);
-      return;
+  // Feature 8: Fetch real active departments from API on mount
+  useEffect(() => {
+    let isMounted = true;
+    async function loadDepartments() {
+      try {
+        const data = await apiClient.academics.getDepartments();
+        if (isMounted && Array.isArray(data) && data.length > 0) {
+          setDepartments(data);
+        }
+      } catch {
+        // Fallback to DEFAULT_DEPARTMENTS silently
+      }
     }
-    showToast('Demo account created and signed in!', 'success');
-    navigate(getRoleDashboardPath(res.user.role));
+    loadDepartments();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  // Feature 8: Dynamically fetch courses whenever the selected department changes
+  useEffect(() => {
+    let isMounted = true;
+    async function loadCourses() {
+      if (!selectedDepartment) return;
+      const deptObj = departments.find(
+        (d) => d.name === selectedDepartment || d.code === selectedDepartment
+      );
+      const deptKey = deptObj ? (deptObj.id || deptObj.code) : selectedDepartment;
+
+      try {
+        const courses = await apiClient.academics.getDepartmentCourses(deptKey);
+        if (isMounted && Array.isArray(courses) && courses.length > 0) {
+          setAvailableCourses(courses);
+          // Set initial course if current is not in list
+          if (!courses.some((c) => c.name === selectedCourse)) {
+            setValue('course', courses[0].name);
+            setSemesterOptions(courses[0].semesterOptions || []);
+            setValue('semester', courses[0].semesterOptions?.[0] || '1st Semester');
+          }
+        }
+      } catch {
+        // Fallback: static courses for common departments
+        if (selectedDepartment.includes('Computer')) {
+          setAvailableCourses([
+            {
+              code: 'BTECH-CSE',
+              name: 'B.Tech Computer Science & Engineering',
+              semesterOptions: [
+                '1st Semester', '2nd Semester', '3rd Semester', '4th Semester',
+                '5th Semester', '6th Semester', '7th Semester', '8th Semester',
+              ],
+            },
+          ]);
+        }
+      }
+    }
+    loadCourses();
+    return () => {
+      isMounted = false;
+    };
+  }, [selectedDepartment, departments, setValue, selectedCourse]);
+
+  // Update semester options when course changes
+  useEffect(() => {
+    if (!selectedCourse || availableCourses.length === 0) return;
+    const foundCourse = availableCourses.find((c) => c.name === selectedCourse || c.code === selectedCourse);
+    if (foundCourse && foundCourse.semesterOptions?.length > 0) {
+      setSemesterOptions(foundCourse.semesterOptions);
+    }
+  }, [selectedCourse, availableCourses]);
+
+  const onSubmit = async (values) => {
+    setErrorMsg('');
+    setIsSubmitting(true);
+
+    try {
+      // 1. Try real backend registration (Features 6, 8, 9)
+      const res = await apiClient.auth.register(values);
+      const studentId = res.user?.studentId || res.user?.student_id;
+      showToast(
+        studentId
+          ? `Welcome to UDAAN! Generated Student ID: ${studentId}`
+          : 'Account created and authenticated!',
+        'success'
+      );
+      navigate(getRoleDashboardPath(res.user.role));
+    } catch (apiErr) {
+      // 2. If backend is offline or returns error, try local fallback registration
+      const localRes = registerUser(values);
+      if (!localRes.ok) {
+        setErrorMsg(apiErr.message || localRes.error);
+        setIsSubmitting(false);
+        return;
+      }
+      showToast('Account registered (Local storage mode)!', 'success');
+      navigate(getRoleDashboardPath(localRes.user.role));
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
     <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-10 sm:py-14">
       <div className="card-surface p-6 sm:p-8">
         <span className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-royal-600 dark:text-royal-400">
-          <ShieldCheck className="w-4 h-4" /> Frontend Demo Registration
+          <ShieldCheck className="w-4 h-4" /> UDAAN Registration
         </span>
         <h1 className="text-2xl font-extrabold text-navy-950 dark:text-white mt-1">
           Join UDAAN Mentorship Community
         </h1>
         <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-          Register as a Student or Mentor. All data is saved locally in your browser.
+          Register as a Student or Mentor with deterministic student ID assignment and academic validation.
         </p>
 
         {/* Role Selector Tabs */}
@@ -109,7 +223,8 @@ export default function RegisterPage() {
         {errorMsg && (
           <div
             role="alert"
-            className="mb-5 rounded-xl border border-rose-200 dark:border-rose-800 bg-rose-50 dark:bg-rose-950/50 px-4 py-3 text-sm text-rose-800 dark:text-rose-200"
+            aria-live="assertive"
+            className="mb-5 rounded-xl border border-rose-200 dark:border-rose-800 bg-rose-50 dark:bg-rose-950/50 px-4 py-3 text-sm text-rose-800 dark:text-rose-200 font-medium"
           >
             {errorMsg}
           </div>
@@ -139,10 +254,11 @@ export default function RegisterPage() {
               Department
             </label>
             <select id="department" {...register('department')} className="input-field">
-              <option>Computer Science & Engineering</option>
-              <option>Electronics & Communication</option>
-              <option>Mathematics & Data Science</option>
-              <option>Design & Humanities</option>
+              {departments.map((dept) => (
+                <option key={dept.id || dept.code} value={dept.name}>
+                  {dept.name} ({dept.code})
+                </option>
+              ))}
             </select>
           </div>
 
@@ -152,17 +268,28 @@ export default function RegisterPage() {
                 <label htmlFor="course" className="block text-sm font-semibold mb-1.5">
                   Course / Program
                 </label>
-                <input id="course" {...register('course')} className="input-field" />
+                {availableCourses.length > 0 ? (
+                  <select id="course" {...register('course')} className="input-field">
+                    {availableCourses.map((c) => (
+                      <option key={c.id || c.code} value={c.name}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input id="course" {...register('course')} className="input-field" />
+                )}
               </div>
               <div>
                 <label htmlFor="semester" className="block text-sm font-semibold mb-1.5">
-                  Semester
+                  Semester (Academic Level)
                 </label>
                 <select id="semester" {...register('semester')} className="input-field">
-                  <option>1st Semester</option>
-                  <option>3rd Semester</option>
-                  <option>5th Semester</option>
-                  <option>7th Semester</option>
+                  {semesterOptions.map((sem) => (
+                    <option key={sem} value={sem}>
+                      {sem}
+                    </option>
+                  ))}
                 </select>
               </div>
             </div>
@@ -229,8 +356,12 @@ export default function RegisterPage() {
             </div>
           </div>
 
-          <button type="submit" className="btn-primary w-full py-3 mt-2">
-            <UserPlus className="w-4 h-4" /> Complete {role === 'student' ? 'Student' : 'Mentor'} Registration
+          <button
+            type="submit"
+            disabled={isSubmitting}
+            className="btn-primary w-full py-3 mt-2 disabled:opacity-60"
+          >
+            <UserPlus className="w-4 h-4" /> {isSubmitting ? 'Registering...' : `Complete ${role === 'student' ? 'Student' : 'Mentor'} Registration`}
           </button>
         </form>
 

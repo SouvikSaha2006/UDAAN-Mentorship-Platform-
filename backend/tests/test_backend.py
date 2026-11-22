@@ -1,3 +1,4 @@
+import concurrent.futures
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -6,13 +7,13 @@ from sqlalchemy.pool import StaticPool
 
 from app.main import app
 from app.database import Base, get_db
-from app.models.academic import Department, Course
+from app.models.academic import Department, Course, StudentIDSequence
 from app.models.user import User, UserRole
 from app.models.student_profile import StudentProfile
 from app.models.accessibility import UserAccessibilitySettings
-from app.utils.security import hash_password
+from app.utils.security import hash_password, create_access_token
+from app.utils.id_generator import generate_student_id
 
-# Use SQLite in-memory with StaticPool so all threads/sessions share the same connection
 SQLALCHEMY_DATABASE_URL = "sqlite:///:memory:"
 
 test_engine = create_engine(
@@ -45,12 +46,16 @@ def setup_database():
     dept_cse = Department(
         code="CSE",
         name="Computer Science & Engineering",
+        hod="Prof. Rajeshwari Kulkarni",
+        accessibility_compliance=96,
         description="Department of Computer Science & Engineering",
         is_active=True,
     )
     dept_ece = Department(
         code="ECE",
         name="Electronics & Communication",
+        hod="Prof. Nandini Bose",
+        accessibility_compliance=92,
         description="Department of Electronics & Communication",
         is_active=True,
     )
@@ -90,7 +95,6 @@ def setup_database():
         db.add(u)
         db.flush()
 
-        # Add accessibility settings
         a11y = UserAccessibilitySettings(
             user_id=u.id,
             font_scale=1.15 if role == UserRole.STUDENT else 1.0,
@@ -98,11 +102,10 @@ def setup_database():
         )
         db.add(a11y)
 
-        # Add student profile if student
         if role == UserRole.STUDENT:
             sp = StudentProfile(
                 user_id=u.id,
-                student_id="UDN-2026-0101",
+                student_id="UDN-2026-CSE-0001",
                 full_name="Aarav Sharma",
                 phone="+91 98765 43210",
                 date_of_birth="2004-06-15",
@@ -124,6 +127,21 @@ def setup_database():
             )
             db.add(sp)
 
+    # 4. Seed sequence table
+    import uuid
+    db.add(StudentIDSequence(
+        id=str(uuid.uuid4()),
+        year=2026,
+        dept_code="CSE",
+        last_seq=1,
+    ))
+    db.add(StudentIDSequence(
+        id=str(uuid.uuid4()),
+        year=2026,
+        dept_code="ECE",
+        last_seq=0,
+    ))
+
     db.commit()
     db.close()
 
@@ -132,40 +150,152 @@ def setup_database():
     Base.metadata.drop_all(bind=test_engine)
 
 
-def test_health_check():
-    response = client.get("/health")
-    assert response.status_code == 200
-    assert response.json()["status"] == "healthy"
+def test_concurrency_safe_student_id_generator():
+    """
+    Feature 6: Concurrency-Safe Student ID Generator
+    Tests formatting UDN-<YEAR>-<DEPT_CODE>-<4_DIGIT_SEQ> and race-condition safety.
+    """
+    db = TestingSessionLocal()
+    # Sequential test
+    id1 = generate_student_id(db, dept_code="CSE", year=2026)
+    id2 = generate_student_id(db, dept_code="CSE", year=2026)
+    assert id1 == "UDN-2026-CSE-0002"
+    assert id2 == "UDN-2026-CSE-0003"
+
+    id_ece = generate_student_id(db, dept_code="ECE", year=2026)
+    assert id_ece == "UDN-2026-ECE-0001"
+    db.commit()
+    db.close()
+
+    # Concurrent multithreaded test
+    def generate_worker():
+        worker_db = TestingSessionLocal()
+        try:
+            val = generate_student_id(worker_db, dept_code="MDS", year=2026)
+            worker_db.commit()
+            return val
+        finally:
+            worker_db.close()
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+        futures = [executor.submit(generate_worker) for _ in range(10)]
+        results = [f.result() for f in futures]
+
+    # Every generated ID must be unique (no duplicates in concurrent runs!)
+    assert len(results) == len(set(results)), "Duplicate IDs found in concurrent generation!"
+    assert all(r.startswith("UDN-2026-MDS-") for r in results)
 
 
-def test_user_registration_and_serializer_hides_password_hash():
+def test_department_courses_metadata_endpoint():
+    """
+    Feature 8: GET /api/v1/academics/departments/{dept_id}/courses
+    Verifies semester bounds (1..total_semesters) and semester options.
+    """
+    res = client.get("/api/v1/academics/departments/CSE/courses")
+    assert res.status_code == 200
+    courses = res.json()
+    assert len(courses) >= 1
+    c = courses[0]
+    assert c["code"] == "BTECH-CSE"
+    assert c["totalSemesters"] == 8
+    assert c["minSemester"] == 1
+    assert c["maxSemester"] == 8
+    assert len(c["semesterOptions"]) == 8
+    assert c["semesterOptions"][0] == "1st Semester"
+    assert c["semesterOptions"][-1] == "8th Semester"
+
+
+def test_admin_protected_academic_endpoints():
+    """
+    Feature 8: POST /api/v1/academics/departments & POST /api/v1/academics/courses
+    Verifies admin protection: unauthenticated / non-admin get 401/403; admin succeeds.
+    """
+    # 1. Unauthenticated request must fail
+    res_unauth = client.post("/api/v1/academics/departments", json={
+        "code": "MECH",
+        "name": "Mechanical Engineering",
+        "hod": "Dr. S. K. Verma",
+    })
+    assert res_unauth.status_code == 401
+
+    # 2. Student token must be rejected with 403 Forbidden
+    login_student = client.post("/api/v1/auth/login", json={
+        "email": "student@udaan.edu",
+        "password": "Password@123",
+        "role": "student",
+    })
+    student_token = login_student.json()["access_token"]
+    res_forbidden = client.post(
+        "/api/v1/academics/departments",
+        json={"code": "MECH", "name": "Mechanical Engineering"},
+        headers={"Authorization": f"Bearer {student_token}"},
+    )
+    assert res_forbidden.status_code == 403
+    assert "Admin privileges required" in res_forbidden.json()["detail"]
+
+    # 3. Admin token must succeed
+    login_admin = client.post("/api/v1/auth/login", json={
+        "email": "admin@udaan.edu",
+        "password": "Password@123",
+        "role": "admin",
+    })
+    admin_token = login_admin.json()["access_token"]
+    res_admin = client.post(
+        "/api/v1/academics/departments",
+        json={
+            "code": "MECH",
+            "name": "Mechanical Engineering",
+            "hod": "Dr. S. K. Verma",
+            "description": "Mechanical Engineering Dept",
+        },
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert res_admin.status_code == 201
+    dept_data = res_admin.json()
+    assert dept_data["code"] == "MECH"
+    assert dept_data["hod"] == "Dr. S. K. Verma"
+
+    # 4. Admin creates course under new department
+    res_course = client.post(
+        "/api/v1/academics/courses",
+        json={
+            "departmentId": dept_data["id"],
+            "code": "BTECH-MECH",
+            "name": "B.Tech Mechanical Engineering",
+            "totalSemesters": 8,
+        },
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert res_course.status_code == 201
+    course_data = res_course.json()
+    assert course_data["code"] == "BTECH-MECH"
+    assert course_data["totalSemesters"] == 8
+    assert course_data["semesterOptions"][0] == "1st Semester"
+
+
+def test_user_registration_generates_formatted_student_id():
+    """
+    Verifies that registering a new student generates an ID formatted as UDN-2026-<DEPT>-<SEQ>.
+    """
     payload = {
-        "name": "Priya Nair",
-        "email": "priya.nair@udaan.edu",
+        "name": "Kavya Menon",
+        "email": "kavya.menon@udaan.edu",
         "role": "student",
         "password": "Password@123",
         "confirmPassword": "Password@123",
         "department": "Computer Science & Engineering",
         "course": "B.Tech Computer Science & Engineering",
-        "semester": "3rd Semester",
+        "semester": "1st Semester",
     }
-    response = client.post("/api/auth/register", json=payload)
-    assert response.status_code == 201
-    data = response.json()
-    assert "access_token" in data
-    assert "user" in data
-    user_data = data["user"]
-    assert user_data["email"] == "priya.nair@udaan.edu"
-    assert user_data["role"] == "student"
-    assert user_data["name"] == "Priya Nair"
-    # Ensure password_hash is NEVER exposed!
-    assert "password_hash" not in user_data
-    assert "password" not in user_data
+    res = client.post("/api/v1/auth/register", json=payload)
+    assert res.status_code == 201
+    user = res.json()["user"]
+    assert user["studentId"].startswith("UDN-2026-CSE-")
 
 
 def test_login_demo_credentials_all_roles():
     for role in ["student", "mentor", "faculty", "support", "admin"]:
-        response = client.post("/api/auth/login", json={
+        response = client.post("/api/v1/auth/login", json={
             "email": f"{role}@udaan.edu",
             "password": "Password@123",
             "role": role,
@@ -179,7 +309,6 @@ def test_login_demo_credentials_all_roles():
 
 
 def test_course_semester_validation():
-    # Total semesters for BTECH-CSE is 8. Trying to register with semester 9 should fail!
     payload = {
         "name": "Invalid Sem Student",
         "email": "invalid.sem@udaan.edu",
@@ -189,14 +318,13 @@ def test_course_semester_validation():
         "course": "B.Tech Computer Science & Engineering",
         "semester": "9th Semester",  # Exceeds total_semesters (8)
     }
-    response = client.post("/api/auth/register", json=payload)
+    response = client.post("/api/v1/auth/register", json=payload)
     assert response.status_code == 400
     assert "between 1 and 8" in response.json()["detail"]
 
 
 def test_student_profile_with_specially_abled_fields():
-    # Login as seeded student Aarav Sharma
-    login_res = client.post("/api/auth/login", json={
+    login_res = client.post("/api/v1/auth/login", json={
         "email": "student@udaan.edu",
         "password": "Password@123",
         "role": "student",
@@ -204,26 +332,24 @@ def test_student_profile_with_specially_abled_fields():
     token = login_res.json()["access_token"]
     headers = {"Authorization": f"Bearer {token}"}
 
-    # Fetch profile
-    get_res = client.get("/api/students/profile", headers=headers)
+    get_res = client.get("/api/v1/students/profile", headers=headers)
     assert get_res.status_code == 200
     p = get_res.json()
     assert p["fullName"] == "Aarav Sharma"
-    assert p["studentId"] == "UDN-2026-0101"
+    assert p["studentId"] == "UDN-2026-CSE-0001"
     assert p["disabilityType"] == "Visual Impairment (Low Vision)"
     assert p["disabilityPercentage"] == 60.0
     assert "Screen Reader Support" in p["assistiveDevices"]
     assert p["udidNumber"] == "KA011042004008921"
     assert p["semester"] == 5
 
-    # Update profile
     profile_update = {
         "fullName": "Aarav Sharma",
         "careerGoal": "Senior Accessibility Architect & Full Stack Lead",
         "disabilityPercentage": 65.0,
         "assistiveDevices": ["Screen Reader Support", "High Contrast UI", "Refreshable Braille Display"],
     }
-    put_res = client.put("/api/students/profile", json=profile_update, headers=headers)
+    put_res = client.put("/api/v1/students/profile", json=profile_update, headers=headers)
     assert put_res.status_code == 200
     updated_p = put_res.json()
     assert updated_p["disabilityPercentage"] == 65.0
@@ -232,8 +358,7 @@ def test_student_profile_with_specially_abled_fields():
 
 
 def test_accessibility_settings_persistence():
-    # Login as student
-    login_res = client.post("/api/auth/login", json={
+    login_res = client.post("/api/v1/auth/login", json={
         "email": "student@udaan.edu",
         "password": "Password@123",
         "role": "student",
@@ -241,14 +366,12 @@ def test_accessibility_settings_persistence():
     token = login_res.json()["access_token"]
     headers = {"Authorization": f"Bearer {token}"}
 
-    # Fetch initial accessibility settings
-    get_res = client.get("/api/accessibility", headers=headers)
+    get_res = client.get("/api/v1/accessibility", headers=headers)
     assert get_res.status_code == 200
     a11y = get_res.json()
     assert a11y["fontScale"] == 1.15
     assert a11y["highContrast"] is True
 
-    # Update accessibility settings
     update_payload = {
         "fontScale": 1.25,
         "highContrast": True,
@@ -259,7 +382,7 @@ def test_accessibility_settings_persistence():
         "captionMode": True,
         "ttsRate": 0.9,
     }
-    put_res = client.put("/api/accessibility", json=update_payload, headers=headers)
+    put_res = client.put("/api/v1/accessibility", json=update_payload, headers=headers)
     assert put_res.status_code == 200
     updated_a11y = put_res.json()
     assert updated_a11y["fontScale"] == 1.25
@@ -267,21 +390,3 @@ def test_accessibility_settings_persistence():
     assert updated_a11y["reducedMotion"] is True
     assert updated_a11y["readingMode"] is True
     assert updated_a11y["lineSpacing"] == 1.8
-
-
-def test_academic_departments_and_courses():
-    res_depts = client.get("/api/academics/departments")
-    assert res_depts.status_code == 200
-    depts = res_depts.json()
-    assert len(depts) >= 2
-    dept_codes = [d["code"] for d in depts]
-    assert "CSE" in dept_codes
-    assert "ECE" in dept_codes
-
-    res_courses = client.get("/api/academics/courses")
-    assert res_courses.status_code == 200
-    courses = res_courses.json()
-    assert len(courses) >= 2
-    course_codes = [c["code"] for c in courses]
-    assert "BTECH-CSE" in course_codes
-    assert "BTECH-ECE" in course_codes

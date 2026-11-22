@@ -218,7 +218,8 @@ def create_student_profile(
                 detail=f"Semester {payload.semester} is invalid for course {course.name}. Must be between 1 and {course.total_semesters}.",
             )
 
-    student_id = payload.student_id or generate_student_id(db)
+    dept = db.query(Department).filter(Department.id == payload.department_id).first() if payload.department_id else None
+    student_id = payload.student_id or generate_student_id(db, dept_code=dept.code if dept else "GEN", year=2026)
 
     profile = StudentProfile(
         user_id=payload.user_id,

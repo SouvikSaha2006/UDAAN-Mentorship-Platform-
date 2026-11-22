@@ -5,7 +5,7 @@ from typing import List
 class Settings(BaseSettings):
     PROJECT_NAME: str = "UDAAN Mentorship Platform API"
     VERSION: str = "1.0.0"
-    API_V1_PREFIX: str = "/api"
+    API_V1_PREFIX: str = "/api/v1"
     
     # Database
     DATABASE_URL: str = "sqlite:///./udaan.db"

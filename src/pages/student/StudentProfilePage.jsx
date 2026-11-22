@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Save, CheckCircle2, Accessibility, User } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import PageHeader from '../../components/common/PageHeader';
 import Avatar from '../../components/common/Avatar';
 import Badge from '../../components/common/Badge';
+import { apiClient } from '../../services/apiClient';
 
 const ACCOMMODATION_OPTIONS = [
   'Screen Reader Support',
@@ -20,13 +21,67 @@ export default function StudentProfilePage() {
   const { currentUser, updateProfile } = useAuth();
   const { showToast } = useToast();
 
-  const [name, setName] = useState(currentUser?.name || '');
-  const [course, setCourse] = useState(currentUser?.course || 'B.Tech Computer Science');
+  const [name, setName] = useState(currentUser?.name || currentUser?.fullName || '');
+  const [department, setDepartment] = useState(currentUser?.department || 'Computer Science & Engineering');
+  const [course, setCourse] = useState(currentUser?.course || 'B.Tech Computer Science & Engineering');
   const [semester, setSemester] = useState(currentUser?.semester || '5th Semester');
   const [phone, setPhone] = useState(currentUser?.phone || '+91 98765 43210');
   const [careerGoal, setCareerGoal] = useState(currentUser?.careerGoal || '');
   const [bio, setBio] = useState(currentUser?.bio || '');
   const [needs, setNeeds] = useState(currentUser?.accessibilityNeeds || []);
+  const [isSaving, setIsSaving] = useState(false);
+
+  // Dynamic academic metadata from API
+  const [departments, setDepartments] = useState([]);
+  const [availableCourses, setAvailableCourses] = useState([]);
+  const [semesterOptions, setSemesterOptions] = useState([
+    '1st Semester', '2nd Semester', '3rd Semester', '4th Semester',
+    '5th Semester', '6th Semester', '7th Semester', '8th Semester',
+  ]);
+
+  // Feature 8: Fetch active departments on mount
+  useEffect(() => {
+    let isMounted = true;
+    async function loadDepts() {
+      try {
+        const data = await apiClient.academics.getDepartments();
+        if (isMounted && Array.isArray(data) && data.length > 0) {
+          setDepartments(data);
+        }
+      } catch {
+        // Fallback silently
+      }
+    }
+    loadDepts();
+    return () => { isMounted = false; };
+  }, []);
+
+  // Feature 8: Fetch courses for current department
+  useEffect(() => {
+    let isMounted = true;
+    async function loadCourses() {
+      if (!department) return;
+      const deptObj = departments.find((d) => d.name === department || d.code === department);
+      const deptKey = deptObj ? (deptObj.id || deptObj.code) : department;
+
+      try {
+        const courses = await apiClient.academics.getDepartmentCourses(deptKey);
+        if (isMounted && Array.isArray(courses) && courses.length > 0) {
+          setAvailableCourses(courses);
+          const currentCourseObj = courses.find((c) => c.name === course || c.code === course);
+          if (currentCourseObj && currentCourseObj.semesterOptions) {
+            setSemesterOptions(currentCourseObj.semesterOptions);
+          } else if (courses[0]?.semesterOptions) {
+            setSemesterOptions(courses[0].semesterOptions);
+          }
+        }
+      } catch {
+        // Fallback
+      }
+    }
+    loadCourses();
+    return () => { isMounted = false; };
+  }, [department, departments, course]);
 
   const toggleNeed = (item) => {
     setNeeds((prev) =>
@@ -34,11 +89,18 @@ export default function StudentProfilePage() {
     );
   };
 
-  const handleSave = (e) => {
+  const handleSave = async (e) => {
     e.preventDefault();
-    const completion = Math.min(100, 65 + (bio.length > 15 ? 15 : 0) + (needs.length > 0 ? 15 : 0) + (careerGoal ? 5 : 0));
-    updateProfile({
+    setIsSaving(true);
+    const completion = Math.min(
+      100,
+      65 + (bio.length > 15 ? 15 : 0) + (needs.length > 0 ? 15 : 0) + (careerGoal ? 5 : 0)
+    );
+
+    const updates = {
       name,
+      fullName: name,
+      department,
       course,
       semester,
       phone,
@@ -46,16 +108,38 @@ export default function StudentProfilePage() {
       bio,
       accessibilityNeeds: needs,
       profileCompletion: completion,
-    });
-    showToast('Student profile updated and saved to localStorage.', 'success');
+    };
+
+    try {
+      // 1. Try real backend profile sync
+      await apiClient.students.updateProfile({
+        fullName: name,
+        phone,
+        bio,
+        careerGoal,
+        semester,
+        accessibilityNeeds: needs,
+        profileCompletion: completion,
+      });
+      updateProfile(updates);
+      showToast('Student profile synchronized with backend database!', 'success');
+    } catch {
+      // 2. Graceful fallback to localStorage
+      updateProfile(updates);
+      showToast('Student profile updated (saved locally).', 'success');
+    } finally {
+      setIsSaving(false);
+    }
   };
+
+  const studentDisplayId = currentUser?.studentId || currentUser?.student_id || currentUser?.rollNumber || 'UDN-2026-CSE-0001';
 
   return (
     <div>
       <PageHeader
         badge="Student Profile"
-        title="Personal & Accessibility Profile"
-        description="Manage your academic details, career aspirations, and preferred campus & digital accommodations."
+        title="Personal & Academic Profile"
+        description="Manage your institutional identity, academic enrollment, and preferred campus accommodations."
       />
 
       <div className="grid lg:grid-cols-12 gap-6">
@@ -67,13 +151,17 @@ export default function StudentProfilePage() {
             <h2 className="text-lg font-extrabold text-slate-900 dark:text-white mt-4">{name}</h2>
             <p className="text-xs text-slate-500 dark:text-slate-400">{currentUser?.email}</p>
             <div className="mt-3 flex justify-center gap-2">
-              <Badge variant="info">{currentUser?.rollNumber || 'CSE-2024-042'}</Badge>
+              <Badge variant="info">{studentDisplayId}</Badge>
               <Badge variant="success">Active Student</Badge>
             </div>
             <div className="mt-5 pt-4 border-t border-slate-100 dark:border-slate-800 text-left space-y-2 text-xs">
               <div className="flex justify-between">
+                <span className="text-slate-500">Student ID</span>
+                <span className="font-mono font-bold text-royal-600">{studentDisplayId}</span>
+              </div>
+              <div className="flex justify-between">
                 <span className="text-slate-500">Department</span>
-                <span className="font-semibold">{currentUser?.department || 'CSE'}</span>
+                <span className="font-semibold">{department}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-500">CGPA</span>
@@ -101,19 +189,73 @@ export default function StudentProfilePage() {
               <label htmlFor="sp-phone" className="block text-sm font-semibold mb-1.5">Phone Number</label>
               <input id="sp-phone" value={phone} onChange={(e) => setPhone(e.target.value)} className="input-field" />
             </div>
-            <div>
-              <label htmlFor="sp-course" className="block text-sm font-semibold mb-1.5">Course</label>
-              <input id="sp-course" value={course} onChange={(e) => setCourse(e.target.value)} className="input-field" />
-            </div>
-            <div>
-              <label htmlFor="sp-sem" className="block text-sm font-semibold mb-1.5">Semester</label>
-              <input id="sp-sem" value={semester} onChange={(e) => setSemester(e.target.value)} className="input-field" />
-            </div>
-          </div>
 
-          <div>
-            <label htmlFor="sp-goal" className="block text-sm font-semibold mb-1.5">Career Goal</label>
-            <input id="sp-goal" value={careerGoal} onChange={(e) => setCareerGoal(e.target.value)} className="input-field" placeholder="e.g., Accessibility-focused Full Stack Engineer" />
+            <div>
+              <label htmlFor="sp-dept" className="block text-sm font-semibold mb-1.5">Department</label>
+              {departments.length > 0 ? (
+                <select
+                  id="sp-dept"
+                  value={department}
+                  onChange={(e) => setDepartment(e.target.value)}
+                  className="input-field"
+                >
+                  {departments.map((d) => (
+                    <option key={d.id || d.code} value={d.name}>
+                      {d.name} ({d.code})
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input id="sp-dept" value={department} onChange={(e) => setDepartment(e.target.value)} className="input-field" />
+              )}
+            </div>
+
+            <div>
+              <label htmlFor="sp-course" className="block text-sm font-semibold mb-1.5">Course / Program</label>
+              {availableCourses.length > 0 ? (
+                <select
+                  id="sp-course"
+                  value={course}
+                  onChange={(e) => setCourse(e.target.value)}
+                  className="input-field"
+                >
+                  {availableCourses.map((c) => (
+                    <option key={c.id || c.code} value={c.name}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input id="sp-course" value={course} onChange={(e) => setCourse(e.target.value)} className="input-field" />
+              )}
+            </div>
+
+            <div>
+              <label htmlFor="sp-sem" className="block text-sm font-semibold mb-1.5">Semester Level</label>
+              <select
+                id="sp-sem"
+                value={semester}
+                onChange={(e) => setSemester(e.target.value)}
+                className="input-field"
+              >
+                {semesterOptions.map((sem) => (
+                  <option key={sem} value={sem}>
+                    {sem}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label htmlFor="sp-goal" className="block text-sm font-semibold mb-1.5">Career Goal</label>
+              <input
+                id="sp-goal"
+                value={careerGoal}
+                onChange={(e) => setCareerGoal(e.target.value)}
+                className="input-field"
+                placeholder="e.g., Accessibility-focused Full Stack Engineer"
+              />
+            </div>
           </div>
 
           <div>
@@ -149,8 +291,8 @@ export default function StudentProfilePage() {
           </div>
 
           <div className="flex justify-end">
-            <button type="submit" className="btn-primary">
-              <Save className="w-4 h-4" /> Save Profile Changes
+            <button type="submit" disabled={isSaving} className="btn-primary disabled:opacity-60">
+              <Save className="w-4 h-4" /> {isSaving ? 'Saving...' : 'Save Profile Changes'}
             </button>
           </div>
         </form>

@@ -142,7 +142,7 @@ def register_user(payload: UserRegister, db: Session = Depends(get_db)):
                 detail=f"Semester {semester_int} is invalid for course {course.name}. Must be between 1 and {course.total_semesters}.",
             )
 
-        student_id = generate_student_id(db)
+        student_id = generate_student_id(db, dept_code=dept.code if dept else "GEN", year=2026)
 
         profile = StudentProfile(
             user_id=new_user.id,

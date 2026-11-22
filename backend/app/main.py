@@ -25,11 +25,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include Routers
-app.include_router(auth.router, prefix=settings.API_V1_PREFIX)
-app.include_router(academics.router, prefix=settings.API_V1_PREFIX)
-app.include_router(students.router, prefix=settings.API_V1_PREFIX)
-app.include_router(accessibility.router, prefix=settings.API_V1_PREFIX)
+# Include Routers with /api/v1 (Feature 8 standard) and /api (legacy alias)
+app.include_router(auth.router, prefix="/api/v1")
+app.include_router(academics.router, prefix="/api/v1")
+app.include_router(students.router, prefix="/api/v1")
+app.include_router(accessibility.router, prefix="/api/v1")
+
+app.include_router(auth.router, prefix="/api")
+app.include_router(academics.router, prefix="/api")
+app.include_router(students.router, prefix="/api")
+app.include_router(accessibility.router, prefix="/api")
 
 
 @app.get("/health", tags=["Health"])

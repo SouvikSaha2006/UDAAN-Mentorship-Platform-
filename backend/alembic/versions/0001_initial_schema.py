@@ -33,13 +33,15 @@ def upgrade() -> None:
     )
     op.create_index(op.f('ix_users_email'), 'users', ['email'], unique=True)
 
-    # 2. Departments table
+    # 2. Departments table (with hod & accessibility_compliance)
     op.create_table(
         'departments',
         sa.Column('id', sa.String(length=36), nullable=False),
         sa.Column('code', sa.String(length=50), nullable=False),
         sa.Column('name', sa.String(length=255), nullable=False),
+        sa.Column('hod', sa.String(length=255), nullable=True),
         sa.Column('description', sa.Text(), nullable=True),
+        sa.Column('accessibility_compliance', sa.Integer(), nullable=False, server_default=sa.text('95')),
         sa.Column('is_active', sa.Boolean(), nullable=False, server_default=sa.text('1')),
         sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
         sa.Column('updated_at', sa.DateTime(timezone=True), nullable=False),
@@ -63,7 +65,19 @@ def upgrade() -> None:
     )
     op.create_index(op.f('ix_courses_code'), 'courses', ['code'], unique=True)
 
-    # 4. Student Profiles table
+    # 4. Student ID Sequences table (Feature 6 concurrency-safe atomic sequence)
+    op.create_table(
+        'student_id_sequences',
+        sa.Column('id', sa.String(length=36), nullable=False),
+        sa.Column('year', sa.Integer(), nullable=False),
+        sa.Column('dept_code', sa.String(length=50), nullable=False),
+        sa.Column('last_seq', sa.Integer(), nullable=False, server_default=sa.text('0')),
+        sa.Column('updated_at', sa.DateTime(timezone=True), nullable=False),
+        sa.PrimaryKeyConstraint('id'),
+        sa.UniqueConstraint('year', 'dept_code', name='uq_student_id_year_dept'),
+    )
+
+    # 5. Student Profiles table
     op.create_table(
         'student_profiles',
         sa.Column('id', sa.String(length=36), nullable=False),
@@ -103,7 +117,7 @@ def upgrade() -> None:
     op.create_index(op.f('ix_student_profiles_student_id'), 'student_profiles', ['student_id'], unique=True)
     op.create_index(op.f('ix_student_profiles_user_id'), 'student_profiles', ['user_id'], unique=True)
 
-    # 5. User Accessibility Settings table
+    # 6. User Accessibility Settings table
     op.create_table(
         'user_accessibility_settings',
         sa.Column('id', sa.String(length=36), nullable=False),
@@ -132,6 +146,7 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.drop_table('user_accessibility_settings')
     op.drop_table('student_profiles')
+    op.drop_table('student_id_sequences')
     op.drop_table('courses')
     op.drop_table('departments')
     op.drop_table('users')

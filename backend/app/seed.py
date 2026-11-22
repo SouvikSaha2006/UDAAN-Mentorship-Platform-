@@ -22,21 +22,29 @@ def seed_database():
             {
                 "code": "CSE",
                 "name": "Computer Science & Engineering",
+                "hod": "Prof. Rajeshwari Kulkarni",
+                "accessibility_compliance": 96,
                 "description": "Department of Computer Science & Engineering with accessible lab setups and inclusive digital curriculum.",
             },
             {
                 "code": "ECE",
                 "name": "Electronics & Communication",
+                "hod": "Prof. Nandini Bose",
+                "accessibility_compliance": 92,
                 "description": "Department of Electronics & Communication with adaptive hardware stations and assistive lab tools.",
             },
             {
                 "code": "MDS",
                 "name": "Mathematics & Data Science",
+                "hod": "Dr. Harishankar Iyer",
+                "accessibility_compliance": 94,
                 "description": "Department of Mathematics & Data Science with descriptive math transcripts and audio notation support.",
             },
             {
                 "code": "DES",
                 "name": "Design & Humanities",
+                "hod": "Prof. Deepak Chawla",
+                "accessibility_compliance": 98,
                 "description": "Department of Design & Humanities specializing in WCAG 2.2 accessible interaction design.",
             },
         ]
@@ -48,11 +56,16 @@ def seed_database():
                 existing = Department(
                     code=d["code"],
                     name=d["name"],
+                    hod=d["hod"],
+                    accessibility_compliance=d["accessibility_compliance"],
                     description=d["description"],
                     is_active=True,
                 )
                 db.add(existing)
                 db.flush()
+            else:
+                existing.hod = d["hod"]
+                existing.accessibility_compliance = d["accessibility_compliance"]
             dept_map[d["code"]] = existing
 
         print("Seeding courses...")
@@ -120,7 +133,7 @@ def seed_database():
                 "email": "student@udaan.edu",
                 "role": UserRole.STUDENT,
                 "profile": {
-                    "student_id": "UDN-2026-0101",
+                    "student_id": "UDN-2026-CSE-0001",
                     "full_name": "Aarav Sharma",
                     "phone": "+91 98765 43210",
                     "date_of_birth": "2004-06-15",
@@ -194,7 +207,7 @@ def seed_database():
                 "email": "sneha.reddy@udaan.edu",
                 "role": UserRole.STUDENT,
                 "profile": {
-                    "student_id": "UDN-2026-0102",
+                    "student_id": "UDN-2026-ECE-0001",
                     "full_name": "Sneha Reddy",
                     "phone": "+91 98765 43211",
                     "date_of_birth": "2005-02-18",
@@ -228,7 +241,7 @@ def seed_database():
                 "email": "rohan.menon@udaan.edu",
                 "role": UserRole.STUDENT,
                 "profile": {
-                    "student_id": "UDN-2026-0103",
+                    "student_id": "UDN-2026-CSE-0002",
                     "full_name": "Rohan Menon",
                     "phone": "+91 98765 43212",
                     "date_of_birth": "2003-11-09",
@@ -261,7 +274,7 @@ def seed_database():
                 "email": "neha.patel@udaan.edu",
                 "role": UserRole.STUDENT,
                 "profile": {
-                    "student_id": "UDN-2026-0104",
+                    "student_id": "UDN-2026-MDS-0001",
                     "full_name": "Neha Patel",
                     "phone": "+91 98765 43213",
                     "date_of_birth": "2005-08-22",
@@ -364,8 +377,32 @@ def seed_database():
                     )
                     db.add(prof)
 
+        # Seed Student ID sequences
+        seq_records = [
+            {"year": 2026, "dept_code": "CSE", "last_seq": 2},
+            {"year": 2026, "dept_code": "ECE", "last_seq": 1},
+            {"year": 2026, "dept_code": "MDS", "last_seq": 1},
+            {"year": 2026, "dept_code": "DES", "last_seq": 0},
+            {"year": 2026, "dept_code": "GEN", "last_seq": 0},
+        ]
+        from app.models.academic import StudentIDSequence
+        for s in seq_records:
+            existing_seq = db.query(StudentIDSequence).filter(
+                StudentIDSequence.year == s["year"],
+                StudentIDSequence.dept_code == s["dept_code"]
+            ).first()
+            if not existing_seq:
+                import uuid
+                db.add(StudentIDSequence(
+                    id=str(uuid.uuid4()),
+                    year=s["year"],
+                    dept_code=s["dept_code"],
+                    last_seq=s["last_seq"],
+                ))
+            else:
+                existing_seq.last_seq = max(existing_seq.last_seq, s["last_seq"])
+
         db.commit()
-        print("Database seeded successfully with deterministic data!")
 
     except Exception as e:
         db.rollback()

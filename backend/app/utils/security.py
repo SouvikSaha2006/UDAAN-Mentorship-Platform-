@@ -2,7 +2,7 @@ import bcrypt
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Any
 import jwt
-from fastapi import HTTPException, status, Depends
+from fastapi import HTTPException, status, Depends, Header
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 from app.config import settings
@@ -70,7 +70,7 @@ def get_current_user(
     if not token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Not authenticated. Bearer token missing.",
+            detail="Authentication required. Bearer token missing.",
             headers={"WWW-Authenticate": "Bearer"},
         )
     from app.models.user import User
@@ -88,3 +88,15 @@ def get_current_user(
             detail="User not found or inactive.",
         )
     return user
+
+
+def require_admin(
+    current_user: Any = Depends(get_current_user),
+):
+    from app.models.user import UserRole
+    if current_user.role != UserRole.ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin privileges required to perform this action.",
+        )
+    return current_user
