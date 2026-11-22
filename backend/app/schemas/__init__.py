@@ -29,6 +29,11 @@ from app.schemas.student_profile import (
     StudentProfileCreate,
     StudentProfileUpdate,
     StudentProfileResponse,
+    StudentPersonalUpdate,
+    StudentAcademicsUpdate,
+    StudentAccessibilityUpdate,
+    StudentAccessibilityResponse,
+    StudentStatusUpdate,
 )
 from app.schemas.accessibility import (
     AccessibilitySettingsBase,

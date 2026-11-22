@@ -1,18 +1,23 @@
-import React, { useState } from 'react';
-import { Plus, Download, Search } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Plus, Download, Search, UserCheck, UserX } from 'lucide-react';
 import { useAppData } from '../../context/AppDataContext';
 import { useToast } from '../../context/ToastContext';
 import PageHeader from '../../components/common/PageHeader';
 import Badge from '../../components/common/Badge';
 import Modal from '../../components/common/Modal';
 import { exportToCSV } from '../../utils/helpers';
+import { apiClient } from '../../services/apiClient';
 
 export default function StudentManagementPage() {
-  const { students, addStudentRecord } = useAppData();
+  const { students: fallbackStudents, addStudentRecord } = useAppData();
   const { showToast } = useToast();
 
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
+  const [apiStudents, setApiStudents] = useState([]);
+  const [useBackend, setUseBackend] = useState(true);
+
+  // Form states
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [rollNumber, setRollNumber] = useState('');
@@ -21,13 +26,66 @@ export default function StudentManagementPage() {
   const [semester, setSemester] = useState('3rd Semester');
   const [accessibilityProfile, setAccessibilityProfile] = useState('Visual Support');
 
-  const filtered = students.filter(
-    (s) =>
-      !query ||
-      s.name.toLowerCase().includes(query.toLowerCase()) ||
-      s.rollNumber.toLowerCase().includes(query.toLowerCase()) ||
-      s.department.toLowerCase().includes(query.toLowerCase())
-  );
+  // Feature 4: Load students from backend API with search query
+  const loadStudents = useCallback(async (searchQuery = '') => {
+    try {
+      const data = await apiClient.students.listStudents({ search: searchQuery });
+      if (Array.isArray(data)) {
+        setApiStudents(data);
+        setUseBackend(true);
+      }
+    } catch {
+      setUseBackend(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      loadStudents(query);
+    }, 250);
+    return () => clearTimeout(handler);
+  }, [query, loadStudents]);
+
+  // Merge backend data with fallback format
+  const displayStudents = useBackend && apiStudents.length > 0
+    ? apiStudents.map((s) => ({
+        id: s.id,
+        studentId: s.studentId,
+        name: s.fullName || s.name,
+        email: s.email || `${s.studentId?.toLowerCase()}@udaan.edu`,
+        rollNumber: s.rollNumber || s.studentId,
+        department: s.departmentName || s.department || 'General',
+        course: s.courseName || s.course || 'B.Tech',
+        semester: `${s.semester}${s.semester === 1 ? 'st' : s.semester === 2 ? 'nd' : s.semester === 3 ? 'rd' : 'th'} Semester`,
+        accessibilityProfile: s.disabilityType || (s.assistiveDevices?.length > 0 ? s.assistiveDevices[0] : 'Standard Support'),
+        progressScore: s.profileCompletion || 75,
+        status: s.isActive ? 'Active' : 'Deactivated',
+        isActive: s.isActive !== false,
+      }))
+    : fallbackStudents.filter(
+        (s) =>
+          !query ||
+          s.name.toLowerCase().includes(query.toLowerCase()) ||
+          s.rollNumber.toLowerCase().includes(query.toLowerCase()) ||
+          s.department.toLowerCase().includes(query.toLowerCase())
+      );
+
+  // Feature 4: Activate / Deactivate student account
+  const handleToggleStatus = async (student) => {
+    const targetStudentId = student.studentId || student.id;
+    const nextActive = !student.isActive;
+
+    try {
+      await apiClient.students.updateStatus(targetStudentId, nextActive);
+      showToast(
+        `Student ${student.name} account ${nextActive ? 'activated' : 'deactivated'}.`,
+        nextActive ? 'success' : 'warning'
+      );
+      loadStudents(query);
+    } catch (err) {
+      showToast(err.message || 'Unable to update status.', 'error');
+    }
+  };
 
   const handleAdd = (e) => {
     e.preventDefault();
@@ -43,7 +101,7 @@ export default function StudentManagementPage() {
       accessibilityProfile,
       accommodations: ['Extended Exam Time (+30 mins)'],
     });
-    showToast(`Added student ${name} to demo directory.`, 'success');
+    showToast(`Added student ${name} to directory.`, 'success');
     setOpen(false);
     setName('');
     setEmail('');
@@ -61,7 +119,7 @@ export default function StudentManagementPage() {
             <button
               type="button"
               onClick={() => {
-                exportToCSV('udaan-students.csv', students);
+                exportToCSV('udaan-students.csv', displayStudents);
                 showToast('Exported student list as CSV.', 'success');
               }}
               className="btn-secondary"
@@ -94,16 +152,17 @@ export default function StudentManagementPage() {
           <thead>
             <tr className="border-b border-slate-200 dark:border-slate-800 text-xs text-slate-500">
               <th className="pb-3 font-bold">Student</th>
-              <th className="pb-3 font-bold">Roll No</th>
+              <th className="pb-3 font-bold">Roll / Student ID</th>
               <th className="pb-3 font-bold">Department & Semester</th>
               <th className="pb-3 font-bold">Accessibility Profile</th>
               <th className="pb-3 font-bold">Progress</th>
               <th className="pb-3 font-bold">Status</th>
+              <th className="pb-3 font-bold text-right">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-            {filtered.map((s) => (
-              <tr key={s.id}>
+            {displayStudents.map((s) => (
+              <tr key={s.id || s.studentId}>
                 <td className="py-3.5">
                   <p className="font-bold text-slate-900 dark:text-white">{s.name}</p>
                   <p className="text-xs text-slate-500">{s.email}</p>
@@ -115,7 +174,30 @@ export default function StudentManagementPage() {
                 </td>
                 <td className="py-3.5 text-xs">{s.accessibilityProfile}</td>
                 <td className="py-3.5 font-bold text-royal-600">{s.progressScore}%</td>
-                <td className="py-3.5"><Badge status={s.status} withIcon>{s.status}</Badge></td>
+                <td className="py-3.5">
+                  <Badge status={s.status} withIcon>{s.status}</Badge>
+                </td>
+                <td className="py-3.5 text-right">
+                  <button
+                    type="button"
+                    onClick={() => handleToggleStatus(s)}
+                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
+                      s.isActive
+                        ? 'border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 hover:bg-rose-50 dark:hover:bg-rose-950/40'
+                        : 'border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/40'
+                    }`}
+                  >
+                    {s.isActive ? (
+                      <>
+                        <UserX className="w-3.5 h-3.5" /> Deactivate
+                      </>
+                    ) : (
+                      <>
+                        <UserCheck className="w-3.5 h-3.5" /> Activate
+                      </>
+                    )}
+                  </button>
+                </td>
               </tr>
             ))}
           </tbody>

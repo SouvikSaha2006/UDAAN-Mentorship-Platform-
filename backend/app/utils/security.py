@@ -25,6 +25,7 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
+    import uuid
     to_encode = data.copy()
     now = datetime.now(timezone.utc)
     if expires_delta:
@@ -34,12 +35,14 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     to_encode.update({
         "exp": expire,
         "iat": now,
+        "jti": str(uuid.uuid4()),
         "token_type": "access",
     })
     return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
 
 
 def create_refresh_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
+    import uuid
     to_encode = data.copy()
     now = datetime.now(timezone.utc)
     if expires_delta:
@@ -49,6 +52,7 @@ def create_refresh_token(data: dict, expires_delta: Optional[timedelta] = None) 
     to_encode.update({
         "exp": expire,
         "iat": now,
+        "jti": str(uuid.uuid4()),
         "token_type": "refresh",
     })
     return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)

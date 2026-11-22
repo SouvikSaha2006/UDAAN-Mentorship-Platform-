@@ -56,6 +56,36 @@ export default function StudentProfilePage() {
     return () => { isMounted = false; };
   }, []);
 
+  // Feature 4: Fetch full student profile from GET /api/v1/students/me
+  useEffect(() => {
+    let isMounted = true;
+    async function loadProfile() {
+      try {
+        const p = await apiClient.students.getMe();
+        if (isMounted && p) {
+          if (p.fullName) setName(p.fullName);
+          if (p.phone) setPhone(p.phone);
+          if (p.departmentName) setDepartment(p.departmentName);
+          if (p.courseName) setCourse(p.courseName);
+          if (p.semester) {
+            const semNum = p.semester;
+            const suffix = semNum === 1 ? 'st' : semNum === 2 ? 'nd' : semNum === 3 ? 'rd' : 'th';
+            setSemester(`${semNum}${suffix} Semester`);
+          }
+          if (p.careerGoal) setCareerGoal(p.careerGoal);
+          if (p.bio) setBio(p.bio);
+          if (Array.isArray(p.assistiveDevices) && p.assistiveDevices.length > 0) {
+            setNeeds(p.assistiveDevices);
+          }
+        }
+      } catch {
+        // Fall back to currentUser state
+      }
+    }
+    loadProfile();
+    return () => { isMounted = false; };
+  }, []);
+
   // Feature 8: Fetch courses for current department
   useEffect(() => {
     let isMounted = true;
@@ -111,15 +141,21 @@ export default function StudentProfilePage() {
     };
 
     try {
-      // 1. Try real backend profile sync
-      await apiClient.students.updateProfile({
+      // 1. Try real backend personal, academics, and accessibility sync
+      await apiClient.students.updatePersonal({
         fullName: name,
         phone,
         bio,
         careerGoal,
+      });
+      await apiClient.students.updateAcademics({
+        department,
+        course,
         semester,
+      });
+      await apiClient.students.updateAccessibility({
+        assistiveDevices: needs,
         accessibilityNeeds: needs,
-        profileCompletion: completion,
       });
       updateProfile(updates);
       showToast('Student profile synchronized with backend database!', 'success');

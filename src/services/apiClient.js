@@ -123,17 +123,71 @@ export const apiClient = {
     },
   },
 
-  // Student Profile & Feature 6 Student ID
+  // Feature 4 & 5: Student Profile CRUD & Details Management
   students: {
+    async getMe() {
+      return apiRequest('/students/me');
+    },
+
     async getProfile(studentId = null) {
-      const query = studentId ? `?student_id=${encodeURIComponent(studentId)}` : '';
-      return apiRequest(`/students/profile${query}`);
+      if (studentId) {
+        return apiRequest(`/students/${encodeURIComponent(studentId)}`);
+      }
+      return apiRequest('/students/me');
+    },
+
+    async getById(studentId) {
+      return apiRequest(`/students/${encodeURIComponent(studentId)}`);
     },
 
     async updateProfile(updates) {
       return apiRequest('/students/profile', {
         method: 'PUT',
         body: JSON.stringify(updates),
+      });
+    },
+
+    async updatePersonal(personalData) {
+      return apiRequest('/students/me/personal', {
+        method: 'PATCH',
+        body: JSON.stringify(personalData),
+      });
+    },
+
+    async updateAcademics(academicData) {
+      return apiRequest('/students/me/academics', {
+        method: 'PATCH',
+        body: JSON.stringify(academicData),
+      });
+    },
+
+    async updateAccessibility(a11yData) {
+      return apiRequest('/students/me/accessibility', {
+        method: 'PUT',
+        body: JSON.stringify(a11yData),
+      });
+    },
+
+    async deactivateAccount() {
+      return apiRequest('/students/me', {
+        method: 'DELETE',
+      });
+    },
+
+    async listStudents(params = {}) {
+      const q = new URLSearchParams();
+      if (params.search) q.append('search', params.search);
+      if (params.department_id) q.append('department_id', params.department_id);
+      if (params.disability_type) q.append('disability_type', params.disability_type);
+      if (params.is_active !== undefined) q.append('is_active', params.is_active);
+      const qs = q.toString() ? `?${q.toString()}` : '';
+      return apiRequest(`/students${qs}`);
+    },
+
+    async updateStatus(studentId, isActive) {
+      return apiRequest(`/students/${encodeURIComponent(studentId)}/status`, {
+        method: 'PATCH',
+        body: JSON.stringify({ isActive }),
       });
     },
   },

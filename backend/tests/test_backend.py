@@ -110,6 +110,8 @@ def setup_database():
                 phone="+91 98765 43210",
                 date_of_birth="2004-06-15",
                 gender="Male",
+                guardian_name="Mrs. Sunita Sharma",
+                guardian_phone="+91 98888 77777",
                 department_id=dept_cse.id,
                 course_id=course_cse.id,
                 semester=5,
@@ -773,3 +775,421 @@ def test_reset_password_expired_token_rejected():
     })
     assert reset_res.status_code == 400
     assert "expired" in reset_res.json()["detail"].lower()
+
+
+def test_student_get_me_endpoint():
+    """
+    Feature 4: GET /api/v1/students/me
+    Returns full student profile, joined department/course/semester metadata,
+    accessibility settings, and computed profile_completion score.
+    """
+    login_res = client.post("/api/v1/auth/login", json={
+        "email": "student@udaan.edu",
+        "password": "Password@123",
+        "role": "student",
+    })
+    token = login_res.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    res = client.get("/api/v1/students/me", headers=headers)
+    assert res.status_code == 200
+    data = res.json()
+    assert data["studentId"] == "UDN-2026-CSE-0001"
+    assert data["fullName"] == "Aarav Sharma"
+    assert data["departmentName"] == "Computer Science & Engineering"
+    assert data["courseName"] == "B.Tech Computer Science & Engineering"
+    assert data["accessibilitySettings"] is not None
+    assert data["accessibilitySettings"]["fontScale"] == 1.15
+    assert data["profileCompletion"] > 0
+    # Sensitive fields are present for the student owner
+    assert data["guardianPhone"] is not None
+    assert data["udidNumber"] is not None
+
+
+def test_student_get_by_id_privacy_filtering_for_mentors():
+    """
+    Feature 4: GET /api/v1/students/{student_id}
+    Privacy-filtered profile for mentors/faculty:
+    Exposes academic info, assistive communication preferences, and bio;
+    hides sensitive guardian_phone, udid_number, and private accommodation_needs.
+    """
+    # 1. Mentor token
+    mentor_login = client.post("/api/v1/auth/login", json={
+        "email": "mentor@udaan.edu",
+        "password": "Password@123",
+        "role": "mentor",
+    })
+    mentor_token = mentor_login.json()["access_token"]
+    mentor_headers = {"Authorization": f"Bearer {mentor_token}"}
+
+    # Query student profile as mentor
+    res = client.get("/api/v1/students/UDN-2026-CSE-0001", headers=mentor_headers)
+    assert res.status_code == 200
+    p = res.json()
+    assert p["studentId"] == "UDN-2026-CSE-0001"
+    assert p["fullName"] == "Aarav Sharma"
+    assert p["departmentName"] == "Computer Science & Engineering"
+    assert p["preferredCommunication"] == "text"
+    assert "Screen Reader Support" in p["assistiveDevices"]
+    assert p["careerGoal"] is not None
+
+    # Sensitive details MUST be filtered out / None for mentor
+    assert p.get("guardianPhone") is None
+    assert p.get("guardianName") is None
+    assert p.get("udidNumber") is None
+    assert p.get("accommodationNeeds") is None
+    assert p.get("address") is None
+
+    # 2. Admin token gets full details
+    admin_login = client.post("/api/v1/auth/login", json={
+        "email": "admin@udaan.edu",
+        "password": "Password@123",
+        "role": "admin",
+    })
+    admin_token = admin_login.json()["access_token"]
+    admin_headers = {"Authorization": f"Bearer {admin_token}"}
+    admin_res = client.get("/api/v1/students/UDN-2026-CSE-0001", headers=admin_headers)
+    assert admin_res.status_code == 200
+    admin_p = admin_res.json()
+    assert admin_p.get("udidNumber") == "KA011042004008921"
+    assert admin_p.get("accommodationNeeds") is not None
+
+
+def test_personal_details_management_and_recomputed_completion():
+    """
+    Feature 5: PATCH /api/v1/students/me/personal
+    Updates personal and guardian emergency contact fields, recomputing completion score.
+    """
+    login_res = client.post("/api/v1/auth/login", json={
+        "email": "student@udaan.edu",
+        "password": "Password@123",
+        "role": "student",
+    })
+    token = login_res.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    patch_payload = {
+        "fullName": "Aarav Sharma Updated",
+        "phone": "+91 99999 88888",
+        "guardianName": "Mrs. Sunita Sharma",
+        "guardianPhone": "+91 98888 77777",
+        "bio": "Passionate assistive technology researcher with deep focus on WCAG 2.2 AA standards.",
+        "careerGoal": "Lead Inclusive Design Architect at Global Tech",
+    }
+    res = client.patch("/api/v1/students/me/personal", json=patch_payload, headers=headers)
+    assert res.status_code == 200
+    data = res.json()
+    assert data["fullName"] == "Aarav Sharma Updated"
+    assert data["phone"] == "+91 99999 88888"
+    assert data["guardianName"] == "Mrs. Sunita Sharma"
+    assert data["guardianPhone"] == "+91 98888 77777"
+    assert data["careerGoal"] == "Lead Inclusive Design Architect at Global Tech"
+    assert data["profileCompletion"] >= 80
+
+
+def test_academic_details_management_and_semester_validation():
+    """
+    Feature 5: PATCH /api/v1/students/me/academics
+    Updates department, course, and semester with server-side validation.
+    """
+    login_res = client.post("/api/v1/auth/login", json={
+        "email": "student@udaan.edu",
+        "password": "Password@123",
+        "role": "student",
+    })
+    token = login_res.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # Invalid semester exceeding total_semesters (8) -> 400
+    bad_res = client.patch("/api/v1/students/me/academics", json={
+        "department": "Computer Science & Engineering",
+        "course": "B.Tech Computer Science & Engineering",
+        "semester": 10,
+    }, headers=headers)
+    assert bad_res.status_code == 400
+    assert "between 1 and 8" in bad_res.json()["detail"]
+
+    # Valid semester -> 200
+    good_res = client.patch("/api/v1/students/me/academics", json={
+        "department": "Computer Science & Engineering",
+        "course": "B.Tech Computer Science & Engineering",
+        "semester": "6th Semester",
+    }, headers=headers)
+    assert good_res.status_code == 200
+    assert good_res.json()["semester"] == 6
+
+
+def test_combined_accessibility_update_endpoint():
+    """
+    Feature 5: PUT /api/v1/students/me/accessibility
+    Persists both domain accommodation fields in StudentProfile
+    AND UI toolbar preferences in UserAccessibilitySettings.
+    """
+    login_res = client.post("/api/v1/auth/login", json={
+        "email": "student@udaan.edu",
+        "password": "Password@123",
+        "role": "student",
+    })
+    token = login_res.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    payload = {
+        # Domain fields
+        "disabilityType": "Visual Impairment & Low Vision",
+        "disabilityPercentage": 70.0,
+        "assistiveDevices": ["Screen Reader Support", "High Contrast UI", "Refreshable Braille"],
+        "preferredCommunication": "audio",
+        "accommodationNeeds": "Accessible electronic exam format and enlarged fonts",
+        "udidNumber": "KA011042004008999",
+        # UI Toolbar preferences
+        "fontScale": 1.25,
+        "highContrast": True,
+        "dyslexiaFont": True,
+        "readingMode": True,
+        "reducedMotion": True,
+        "lineSpacing": 1.8,
+        "captionMode": True,
+        "ttsRate": 0.85,
+    }
+    res = client.put("/api/v1/students/me/accessibility", json=payload, headers=headers)
+    assert res.status_code == 200
+    data = res.json()
+    assert data["ok"] is True
+
+    # Check domain profile fields
+    profile = data["profile"]
+    assert profile["disabilityType"] == "Visual Impairment & Low Vision"
+    assert profile["disabilityPercentage"] == 70.0
+    assert "Refreshable Braille" in profile["assistiveDevices"]
+    assert profile["preferredCommunication"] == "audio"
+
+    # Check UI toolbar settings
+    a11y = data["accessibilitySettings"]
+    assert a11y["fontScale"] == 1.25
+    assert a11y["highContrast"] is True
+    assert a11y["dyslexiaFont"] is True
+    assert a11y["readingMode"] is True
+    assert a11y["reducedMotion"] is True
+    assert a11y["lineSpacing"] == 1.8
+
+
+def test_admin_student_directory_and_status_toggle():
+    """
+    Feature 4: GET /api/v1/students & PATCH /api/v1/students/{student_id}/status
+    Admin search, filtering, and account activate/deactivate.
+    """
+    admin_login = client.post("/api/v1/auth/login", json={
+        "email": "admin@udaan.edu",
+        "password": "Password@123",
+        "role": "admin",
+    })
+    admin_token = admin_login.json()["access_token"]
+    admin_headers = {"Authorization": f"Bearer {admin_token}"}
+
+    # 1. Search directory
+    list_res = client.get("/api/v1/students?search=Aarav", headers=admin_headers)
+    assert list_res.status_code == 200
+    students = list_res.json()
+    assert len(students) >= 1
+    aarav = students[0]
+    assert aarav["studentId"] == "UDN-2026-CSE-0001"
+    assert aarav["isActive"] is True
+
+    # 2. Deactivate student account
+    deactivate_res = client.patch(
+        f"/api/v1/students/{aarav['studentId']}/status",
+        json={"isActive": False},
+        headers=admin_headers,
+    )
+    assert deactivate_res.status_code == 200
+    assert deactivate_res.json()["isActive"] is False
+
+    # 3. Student can no longer login while deactivated
+    student_login = client.post("/api/v1/auth/login", json={
+        "email": "student@udaan.edu",
+        "password": "Password@123",
+        "role": "student",
+    })
+    assert student_login.status_code == 403
+    assert "deactivated" in student_login.json()["detail"].lower()
+
+    # 4. Reactivate student account
+    activate_res = client.patch(
+        f"/api/v1/students/{aarav['studentId']}/status",
+        json={"isActive": True},
+        headers=admin_headers,
+    )
+    assert activate_res.status_code == 200
+    assert activate_res.json()["isActive"] is True
+
+
+def test_student_self_deactivation():
+    """
+    Feature 4: DELETE /api/v1/students/me
+    Soft-deactivates account while preserving relational integrity.
+    """
+    # Register a new student to test self-deactivation
+    reg_res = client.post("/api/v1/auth/register", json={
+        "name": "Deactivate Me",
+        "email": "deactivate.me@udaan.edu",
+        "role": "student",
+        "password": "Password@123",
+        "confirmPassword": "Password@123",
+        "department": "Computer Science & Engineering",
+        "course": "B.Tech Computer Science & Engineering",
+        "semester": "1st Semester",
+    })
+    token = reg_res.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # Deactivate account
+    del_res = client.delete("/api/v1/students/me", headers=headers)
+    assert del_res.status_code == 200
+    assert del_res.json()["ok"] is True
+
+    # Subsequent access with that token fails
+    me_res = client.get("/api/v1/students/me", headers=headers)
+    assert me_res.status_code == 401
+
+
+def test_e2e_full_lifecycle_flow():
+    """
+    Comprehensive End-to-End Test:
+    Register -> Auto-generate Student ID -> Persist Accessibility Settings ->
+    Logout -> Login -> Edit Profile -> Password Reset.
+    """
+    # 1. Register new specially-abled student
+    reg_payload = {
+        "name": "Devika Krishnan",
+        "email": "devika.krishnan@udaan.edu",
+        "role": "student",
+        "password": "InitialPassword@123",
+        "confirmPassword": "InitialPassword@123",
+        "department": "Computer Science & Engineering",
+        "course": "B.Tech Computer Science & Engineering",
+        "semester": "1st Semester",
+        "phone": "+91 94444 33333",
+        "disabilityType": "Visual Impairment (Low Vision)",
+        "disabilityPercentage": 65.0,
+        "assistiveDevices": ["Screen Reader Support", "High Contrast UI"],
+        "preferredCommunication": "text",
+        "accommodationNeeds": "Enlarged code fonts and extra exam time",
+        "udidNumber": "KL031062005001234",
+    }
+    reg_res = client.post("/api/v1/auth/register", json=reg_payload)
+    assert reg_res.status_code == 201
+    reg_data = reg_res.json()
+
+    # 2. Verify Auto-generated Student ID & Initial Accessibility Settings
+    student_id = reg_data["user"]["studentId"]
+    assert student_id.startswith("UDN-2026-CSE-")
+    access_token_1 = reg_data["access_token"]
+    refresh_token_1 = reg_data["refresh_token"]
+
+    # Visual impairment during registration enables highContrast
+    assert reg_data["accessibility_settings"]["highContrast"] is True
+
+    # 3. Persist Accessibility Settings via PUT /api/v1/students/me/accessibility
+    auth_headers_1 = {"Authorization": f"Bearer {access_token_1}"}
+    a11y_update = {
+        "fontScale": 1.30,
+        "highContrast": True,
+        "dyslexiaFont": True,
+        "reducedMotion": True,
+        "lineSpacing": 1.8,
+    }
+    a11y_res = client.put("/api/v1/students/me/accessibility", json=a11y_update, headers=auth_headers_1)
+    assert a11y_res.status_code == 200
+    assert a11y_res.json()["accessibilitySettings"]["fontScale"] == 1.30
+    assert a11y_res.json()["accessibilitySettings"]["dyslexiaFont"] is True
+
+    # 4. Logout (revokes refresh token and access token in DB blacklist)
+    logout_res = client.post(
+        "/api/v1/auth/logout",
+        json={"refresh_token": refresh_token_1},
+        headers=auth_headers_1,
+    )
+    assert logout_res.status_code == 200
+
+    # Verify old access token is now rejected with 401
+    me_revoked = client.get("/api/v1/students/me", headers=auth_headers_1)
+    assert me_revoked.status_code == 401
+
+    # 5. Login again with original credentials
+    login_res = client.post("/api/v1/auth/login", json={
+        "email": "devika.krishnan@udaan.edu",
+        "password": "InitialPassword@123",
+        "role": "student",
+    })
+    assert login_res.status_code == 200
+    login_data = login_res.json()
+    access_token_2 = login_data["access_token"]
+    auth_headers_2 = {"Authorization": f"Bearer {access_token_2}"}
+
+    # Verify persisted accessibility settings are hydrated on login
+    assert login_data["accessibility_settings"]["fontScale"] == 1.30
+    assert login_data["accessibility_settings"]["dyslexiaFont"] is True
+
+    # 6. Edit Profile (Personal & Academic fields)
+    patch_personal_res = client.patch(
+        "/api/v1/students/me/personal",
+        json={
+            "phone": "+91 97777 66666",
+            "bio": "Third-year inclusive computing researcher and accessibility advocate.",
+            "careerGoal": "Lead Assistive Software Engineer",
+        },
+        headers=auth_headers_2,
+    )
+    assert patch_personal_res.status_code == 200
+    assert patch_personal_res.json()["phone"] == "+91 97777 66666"
+    assert patch_personal_res.json()["profileCompletion"] >= 75
+
+    patch_academics_res = client.patch(
+        "/api/v1/students/me/academics",
+        json={"semester": 2},
+        headers=auth_headers_2,
+    )
+    assert patch_academics_res.status_code == 200
+    assert patch_academics_res.json()["semester"] == 2
+
+    # 7. Password Reset
+    forgot_res = client.post("/api/v1/auth/forgot-password", json={"email": "devika.krishnan@udaan.edu"})
+    assert forgot_res.status_code == 200
+    reset_otp = forgot_res.json()["demo_code"]
+    assert reset_otp is not None
+
+    verify_res = client.post("/api/v1/auth/verify-reset-token", json={
+        "email": "devika.krishnan@udaan.edu",
+        "resetCode": reset_otp,
+    })
+    assert verify_res.status_code == 200
+    assert verify_res.json()["valid"] is True
+
+    new_password = "BrandNewDevikaPassword@2026"
+    reset_confirm_res = client.post("/api/v1/auth/reset-password", json={
+        "email": "devika.krishnan@udaan.edu",
+        "resetCode": reset_otp,
+        "newPassword": new_password,
+    })
+    assert reset_confirm_res.status_code == 200
+
+    # Old password no longer works
+    old_login_res = client.post("/api/v1/auth/login", json={
+        "email": "devika.krishnan@udaan.edu",
+        "password": "InitialPassword@123",
+        "role": "student",
+    })
+    assert old_login_res.status_code == 401
+
+    # New password works and retains profile data & student ID
+    final_login_res = client.post("/api/v1/auth/login", json={
+        "email": "devika.krishnan@udaan.edu",
+        "password": new_password,
+        "role": "student",
+    })
+    assert final_login_res.status_code == 200
+    final_data = final_login_res.json()
+    assert final_data["user"]["studentId"] == student_id
+    assert final_data["accessibility_settings"]["fontScale"] == 1.30
+    assert final_data["profile"]["semester"] == 2
+    assert final_data["profile"]["careerGoal"] == "Lead Assistive Software Engineer"

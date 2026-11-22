@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { storageService } from '../services/storageService';
+import { apiClient } from '../services/apiClient';
 
 const DEFAULT_A11Y_SETTINGS = {
   fontScale: 1,
@@ -42,6 +43,23 @@ export function AccessibilityProvider({ children }) {
     root.classList.toggle('large-controls', Boolean(settings.largeControls));
     root.classList.toggle('reduced-motion', Boolean(settings.reducedMotion));
     root.classList.toggle('focus-enhanced', Boolean(settings.focusEnhanced));
+  }, [settings]);
+
+  // Feature 5: Debounce-sync UI preference toggles to PUT /api/v1/students/me/accessibility
+  // whenever a user is logged in, while keeping localStorage fallback for logged-out visitors.
+  useEffect(() => {
+    const token = storageService.get('auth_token', null);
+    if (!token) return;
+
+    const handler = setTimeout(async () => {
+      try {
+        await apiClient.students.updateAccessibility(settings);
+      } catch {
+        // Fall back gracefully to localStorage
+      }
+    }, 500);
+
+    return () => clearTimeout(handler);
   }, [settings]);
 
   const applySettings = useCallback((newSettings) => {

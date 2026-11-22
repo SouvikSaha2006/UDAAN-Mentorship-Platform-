@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { useAccessibility } from '../../context/AccessibilityContext';
 import { useToast } from '../../context/ToastContext';
+import { apiClient } from '../../services/apiClient';
 import PageHeader from '../../components/common/PageHeader';
 
 export default function AccessibilitySettingsPage() {
@@ -27,8 +28,13 @@ export default function AccessibilitySettingsPage() {
   } = useAccessibility();
   const { showToast } = useToast();
 
-  const handleSave = () => {
-    showToast('All accessibility preferences saved to localStorage!', 'success');
+  const handleSave = async () => {
+    try {
+      await apiClient.students.updateAccessibility(settings);
+      showToast('All accessibility preferences synchronized with backend database!', 'success');
+    } catch {
+      showToast('All accessibility preferences saved to localStorage!', 'success');
+    }
   };
 
   const handleReset = () => {
