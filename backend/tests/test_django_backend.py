@@ -342,12 +342,12 @@ class TestFeature9SerializersAndAtomicSequences:
         # StudentPublicSerializer strips private fields
         pub_ser = StudentPublicSerializer(profile)
         pub_data = pub_ser.data
-        assert 'phone' not in pub_data
-        assert 'guardianPhone' not in pub_data
-        assert 'guardianName' not in pub_data
-        assert 'udidNumber' not in pub_data
-        assert 'accommodationNeeds' not in pub_data
-        assert 'address' not in pub_data
+        assert pub_data['phone'] is None
+        assert pub_data['guardianPhone'] is None
+        assert pub_data['guardianName'] is None
+        assert pub_data['udidNumber'] is None
+        assert pub_data['accommodationNeeds'] is None
+        assert pub_data['address'] is None
         assert pub_data['fullName'] == 'Aarav Sharma'
         assert pub_data['studentId'] == 'UDN-2026-CSE-0001'
 

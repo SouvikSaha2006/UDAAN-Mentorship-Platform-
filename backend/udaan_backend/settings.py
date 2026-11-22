@@ -142,6 +142,10 @@ CORS_ALLOW_HEADERS = [
     'x-requested-with',
 ]
 
+# Email Backend - Console logging for development & auditing
+EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+DEFAULT_FROM_EMAIL = 'support@udaan.edu'
+
 # Reset Token configuration
 RESET_TOKEN_EXPIRE_MINUTES = 15
 FRONTEND_URL = os.environ.get('FRONTEND_URL', 'http://localhost:5173')

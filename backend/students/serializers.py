@@ -156,12 +156,20 @@ class StudentMeSerializer(serializers.ModelSerializer):
 class StudentPublicSerializer(serializers.ModelSerializer):
     """
     Feature 9: Privacy-safe serializer for Mentors, Faculty, and Directory views.
-    Strips sensitive private fields: guardian_phone, guardian_name, udid_number,
-    accommodation_needs, phone, and address.
+    Strips sensitive private fields by returning None: guardian_phone, guardian_name,
+    udid_number, accommodation_needs, phone, and address.
     """
     userId = serializers.UUIDField(source='user.id', read_only=True)
     studentId = serializers.CharField(source='student_id', read_only=True)
     fullName = serializers.CharField(source='full_name')
+    phone = serializers.SerializerMethodField()
+    dateOfBirth = serializers.SerializerMethodField()
+    guardianName = serializers.SerializerMethodField()
+    guardianPhone = serializers.SerializerMethodField()
+    accommodationNeeds = serializers.SerializerMethodField()
+    udidNumber = serializers.SerializerMethodField()
+    address = serializers.SerializerMethodField()
+
     avatarUrl = serializers.CharField(source='avatar_url', allow_null=True)
     avatarColor = serializers.CharField(source='avatar_color')
     careerGoal = serializers.CharField(source='career_goal', allow_null=True)
@@ -190,7 +198,12 @@ class StudentPublicSerializer(serializers.ModelSerializer):
             'userId',
             'studentId',
             'fullName',
+            'phone',
+            'dateOfBirth',
             'gender',
+            'address',
+            'guardianName',
+            'guardianPhone',
             'bio',
             'avatarUrl',
             'avatarColor',
@@ -208,11 +221,34 @@ class StudentPublicSerializer(serializers.ModelSerializer):
             'disabilityPercentage',
             'assistiveDevices',
             'preferredCommunication',
+            'accommodationNeeds',
+            'udidNumber',
             'email',
             'isActive',
             'created_at',
             'updated_at',
         ]
+
+    def get_phone(self, obj):
+        return None
+
+    def get_dateOfBirth(self, obj):
+        return None
+
+    def get_guardianName(self, obj):
+        return None
+
+    def get_guardianPhone(self, obj):
+        return None
+
+    def get_accommodationNeeds(self, obj):
+        return None
+
+    def get_udidNumber(self, obj):
+        return None
+
+    def get_address(self, obj):
+        return None
 
 
 class StudentProfileSerializer(serializers.ModelSerializer):

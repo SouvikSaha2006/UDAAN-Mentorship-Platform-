@@ -12,10 +12,12 @@ from academics.serializers import is_valid_uuid
 from students.models import StudentProfile, UserAccessibilitySettings
 from students.serializers import (
     StudentProfileSerializer,
+    StudentMeSerializer,
+    StudentPublicSerializer,
     AccessibilitySettingsSerializer,
 )
 from students.id_generator import generate_student_id
-from accounts.permissions import IsAdminRole, CanViewStudentDirectory
+from accounts.permissions import IsAdminRole, CanViewStudentDirectory, IsProfileOwnerOrAdmin
 
 
 def calculate_profile_completion(p: StudentProfile) -> int:
@@ -40,6 +42,9 @@ def revoke_all_user_tokens(user):
 
 
 class StudentMeView(APIView):
+    """
+    Feature 4: Full profile for current student and soft-deactivation.
+    """
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
@@ -61,7 +66,7 @@ class StudentMeView(APIView):
 
         profile.profile_completion = calculate_profile_completion(profile)
         profile.save()
-        serializer = StudentProfileSerializer(profile, context={'request': request})
+        serializer = StudentMeSerializer(profile, context={'request': request})
         return Response(serializer.data, status=status.HTTP_200_OK)
 
     def delete(self, request):
@@ -76,6 +81,9 @@ class StudentMeView(APIView):
 
 
 class StudentPersonalView(APIView):
+    """
+    Feature 5: Update personal details.
+    """
     permission_classes = [IsAuthenticated]
 
     def patch(self, request):
@@ -110,11 +118,14 @@ class StudentPersonalView(APIView):
         profile.profile_completion = calculate_profile_completion(profile)
         profile.save()
 
-        serializer = StudentProfileSerializer(profile, context={'request': request})
+        serializer = StudentMeSerializer(profile, context={'request': request})
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
 class StudentAcademicsView(APIView):
+    """
+    Feature 5: Update academic details with semester range validation.
+    """
     permission_classes = [IsAuthenticated]
 
     def patch(self, request):
@@ -164,12 +175,33 @@ class StudentAcademicsView(APIView):
         profile.profile_completion = calculate_profile_completion(profile)
         profile.save()
 
-        serializer = StudentProfileSerializer(profile, context={'request': request})
+        serializer = StudentMeSerializer(profile, context={'request': request})
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
 class StudentAccessibilityView(APIView):
+    """
+    Feature 5: GET / PUT / PATCH /api/v1/students/me/accessibility
+    Persists both domain disability accommodations and UI toolbar preferences.
+    """
     permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        user = request.user
+        profile = getattr(user, 'student_profile', None)
+        if not profile:
+            raise exceptions.NotFound("Student profile not found.")
+        a11y, _ = UserAccessibilitySettings.objects.get_or_create(user=user)
+
+        return Response(
+            {
+                "ok": True,
+                "profile": StudentMeSerializer(profile, context={'request': request}).data,
+                "accessibilitySettings": AccessibilitySettingsSerializer(a11y).data,
+                "accessibility_settings": AccessibilitySettingsSerializer(a11y).data,
+            },
+            status=status.HTTP_200_OK,
+        )
 
     def put(self, request):
         user = request.user
@@ -234,19 +266,30 @@ class StudentAccessibilityView(APIView):
         for in_key, model_attr in field_mappings.items():
             if in_key in data and data[in_key] is not None:
                 setattr(a11y, model_attr, data[in_key])
+
+        if 'preferences' in data and isinstance(data['preferences'], dict):
+            a11y.preferences.update(data['preferences'])
+
         a11y.save()
 
         return Response(
             {
                 "ok": True,
-                "profile": StudentProfileSerializer(profile, context={'request': request}).data,
+                "profile": StudentMeSerializer(profile, context={'request': request}).data,
                 "accessibilitySettings": AccessibilitySettingsSerializer(a11y).data,
+                "accessibility_settings": AccessibilitySettingsSerializer(a11y).data,
             },
             status=status.HTTP_200_OK,
         )
 
+    def patch(self, request):
+        return self.put(request)
+
 
 class StudentListView(APIView):
+    """
+    Feature 4: Directory list for StudentManagementPage.jsx and mentors/faculty.
+    """
     permission_classes = [CanViewStudentDirectory]
 
     def get(self, request):
@@ -280,6 +323,9 @@ class StudentListView(APIView):
 
 
 class StudentStatusView(APIView):
+    """
+    Feature 4: Admin activation/deactivation of student account.
+    """
     permission_classes = [IsAdminRole]
 
     def patch(self, request, student_id):
@@ -307,6 +353,9 @@ class StudentStatusView(APIView):
 
 
 class StudentDetailView(APIView):
+    """
+    Feature 4: Privacy-filtered student profile for mentors/faculty.
+    """
     permission_classes = [IsAuthenticated]
 
     def get(self, request, student_id):
@@ -315,7 +364,11 @@ class StudentDetailView(APIView):
         if not profile:
             raise exceptions.NotFound(f"Student '{student_id}' not found.")
 
-        serializer = StudentProfileSerializer(profile, context={'request': request})
+        # If user is owner or admin/support, return full profile; otherwise privacy-filtered public profile
+        if request.user.id == profile.user.id or request.user.role in [UserRole.ADMIN, UserRole.SUPPORT]:
+            serializer = StudentMeSerializer(profile, context={'request': request})
+        else:
+            serializer = StudentPublicSerializer(profile, context={'request': request})
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 

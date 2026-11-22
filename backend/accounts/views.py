@@ -3,6 +3,7 @@ import logging
 import secrets
 from datetime import timedelta
 from django.conf import settings
+from django.core.mail import send_mail
 from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
@@ -44,12 +45,16 @@ def build_auth_response(user, request=None):
         a11y_data = AccessibilitySettingsSerializer(user.accessibility_settings).data
 
     return {
+        # Standard and SimpleJWT keys
+        'access': access_token,
+        'refresh': refresh_token,
         'access_token': access_token,
         'refresh_token': refresh_token,
-        'token_type': 'bearer',
         'accessToken': access_token,
         'refreshToken': refresh_token,
+        'token_type': 'bearer',
         'tokenType': 'bearer',
+        # Hydrated entities
         'user': user_data,
         'profile': profile_data,
         'accessibility_settings': a11y_data,
@@ -61,6 +66,25 @@ def dispatch_password_reset_code(email: str, otp_code: str):
     frontend_url = getattr(settings, 'FRONTEND_URL', 'http://localhost:5173')
     expire_min = getattr(settings, 'RESET_TOKEN_EXPIRE_MINUTES', 15)
     reset_url = f"{frontend_url}/forgot-password?email={email}&code={otp_code}"
+
+    # 1. Django core mail dispatch via console backend
+    subject = "UDAAN Mentorship Platform - Password Reset Verification Code"
+    message = (
+        f"Hello,\n\n"
+        f"You requested to reset your password on the UDAAN Mentorship Platform.\n"
+        f"Your 6-digit verification code is: {otp_code}\n\n"
+        f"This code will expire in {expire_min} minutes.\n"
+        f"Reset Link: {reset_url}\n\n"
+        f"If you did not make this request, you can safely ignore this email.\n\n"
+        f"— UDAAN Accessibility & Support Team"
+    )
+    from_email = getattr(settings, 'DEFAULT_FROM_EMAIL', 'support@udaan.edu')
+    try:
+        send_mail(subject, message, from_email, [email], fail_silently=True)
+    except Exception as e:
+        logger.warning("Console email dispatch caught exception: %s", e)
+
+    # 2. Deterministic console banner for audit & local testing
     banner = (
         "\n" + "=" * 65 + "\n"
         "  [UDAAN AUTH SERVICE] PASSWORD RESET VERIFICATION CODE\n"
@@ -74,8 +98,13 @@ def dispatch_password_reset_code(email: str, otp_code: str):
 
 
 class RegisterView(APIView):
+    """
+    Feature 1: Student & User Registration inside an atomic transaction.
+    Generates deterministic Student ID, initializes StudentProfile & UserAccessibilitySettings.
+    """
     permission_classes = [AllowAny]
 
+    @transaction.atomic
     def post(self, request):
         data = request.data
         email = data.get('email', '').strip().lower()
@@ -96,91 +125,99 @@ class RegisterView(APIView):
         if role not in valid_roles:
             role = UserRole.STUDENT
 
-        with transaction.atomic():
-            user = User.objects.create_user(
-                email=email,
-                password=password,
-                role=role,
-                is_active=True,
+        user = User.objects.create_user(
+            email=email,
+            password=password,
+            role=role,
+            is_active=True,
+        )
+
+        disability_type = data.get('disability_type') or data.get('disabilityType') or ''
+        high_contrast = False
+        dyslexia_font = False
+        caption_mode = True
+        if disability_type:
+            dt_lower = disability_type.lower()
+            if "visual" in dt_lower or "vision" in dt_lower:
+                high_contrast = True
+            if "dyslexia" in dt_lower or "learning" in dt_lower:
+                dyslexia_font = True
+            if "hearing" in dt_lower:
+                caption_mode = True
+
+        UserAccessibilitySettings.objects.create(
+            user=user,
+            high_contrast=high_contrast,
+            dyslexia_font=dyslexia_font,
+            caption_mode=caption_mode,
+            preferences={
+                "high_contrast": high_contrast,
+                "dyslexia_font": dyslexia_font,
+                "caption_mode": caption_mode,
+            },
+        )
+
+        if role == UserRole.STUDENT:
+            dept_val = data.get('department')
+            dept = None
+            if dept_val:
+                q = Q(id=dept_val) if is_valid_uuid(dept_val) else (Q(code=str(dept_val).upper()) | Q(name__icontains=str(dept_val)))
+                dept = Department.objects.filter(q).first()
+
+            course_val = data.get('course')
+            course = None
+            if course_val:
+                q = Q(id=course_val) if is_valid_uuid(course_val) else (Q(code=str(course_val).upper()) | Q(name__icontains=str(course_val)))
+                course = Course.objects.filter(q).first()
+
+            raw_sem = data.get('semester', 1)
+            semester_int = raw_sem if isinstance(raw_sem, int) else int(''.join(c for c in str(raw_sem) if c.isdigit()) or 1)
+
+            if course and (semester_int < 1 or semester_int > course.total_semesters):
+                raise exceptions.ValidationError(
+                    f"Semester {semester_int} is invalid for course {course.name}. Must be between 1 and {course.total_semesters}."
+                )
+
+            student_id = generate_student_id(
+                department=dept,
+                dept_code=dept.code if dept else "GEN",
+                year=2026,
             )
 
-            disability_type = data.get('disability_type') or data.get('disabilityType') or ''
-            high_contrast = False
-            dyslexia_font = False
-            caption_mode = True
-            if disability_type:
-                dt_lower = disability_type.lower()
-                if "visual" in dt_lower or "vision" in dt_lower:
-                    high_contrast = True
-                if "dyslexia" in dt_lower or "learning" in dt_lower:
-                    dyslexia_font = True
-                if "hearing" in dt_lower:
-                    caption_mode = True
+            devices = list(data.get('assistive_devices') or data.get('assistiveDevices') or [])
+            acc_needs = data.get('accessibility_needs') or []
+            for n in acc_needs:
+                if n not in devices:
+                    devices.append(n)
 
-            UserAccessibilitySettings.objects.create(
+            StudentProfile.objects.create(
                 user=user,
-                high_contrast=high_contrast,
-                dyslexia_font=dyslexia_font,
-                caption_mode=caption_mode,
+                student_id=student_id,
+                full_name=name,
+                phone=data.get('phone'),
+                department=dept,
+                course=course,
+                semester=semester_int,
+                batch_year=2026,
+                bio=data.get('bio', 'New UDAAN member.'),
+                profile_completion=70,
+                cgpa=8.0,
+                roll_number=f"{dept.code if dept else 'GEN'}-2026-{student_id.split('-')[-1]}",
+                disability_type=disability_type or None,
+                disability_percentage=data.get('disability_percentage') or data.get('disabilityPercentage'),
+                assistive_devices=devices,
+                preferred_communication=data.get('preferred_communication') or data.get('preferredCommunication') or 'text',
+                accommodation_needs=data.get('accommodation_needs') or data.get('accommodationNeeds'),
+                udid_number=data.get('udid_number') or data.get('udidNumber'),
             )
-
-            if role == UserRole.STUDENT:
-                dept_val = data.get('department')
-                dept = None
-                if dept_val:
-                    q = Q(id=dept_val) if is_valid_uuid(dept_val) else (Q(code=str(dept_val).upper()) | Q(name__icontains=str(dept_val)))
-                    dept = Department.objects.filter(q).first()
-
-                course_val = data.get('course')
-                course = None
-                if course_val:
-                    q = Q(id=course_val) if is_valid_uuid(course_val) else (Q(code=str(course_val).upper()) | Q(name__icontains=str(course_val)))
-                    course = Course.objects.filter(q).first()
-
-                raw_sem = data.get('semester', 1)
-                semester_int = raw_sem if isinstance(raw_sem, int) else int(''.join(c for c in str(raw_sem) if c.isdigit()) or 1)
-
-                if course and (semester_int < 1 or semester_int > course.total_semesters):
-                    raise exceptions.ValidationError(
-                        f"Semester {semester_int} is invalid for course {course.name}. Must be between 1 and {course.total_semesters}."
-                    )
-
-                student_id = generate_student_id(
-                    dept_code=dept.code if dept else "GEN",
-                    year=2026,
-                )
-
-                devices = list(data.get('assistive_devices') or data.get('assistiveDevices') or [])
-                acc_needs = data.get('accessibility_needs') or []
-                for n in acc_needs:
-                    if n not in devices:
-                        devices.append(n)
-
-                StudentProfile.objects.create(
-                    user=user,
-                    student_id=student_id,
-                    full_name=name,
-                    phone=data.get('phone'),
-                    department=dept,
-                    course=course,
-                    semester=semester_int,
-                    batch_year=2026,
-                    bio=data.get('bio', 'New UDAAN member.'),
-                    profile_completion=70,
-                    cgpa=8.0,
-                    roll_number=f"{dept.code if dept else 'GEN'}-2026-{student_id.split('-')[-1]}",
-                    disability_type=disability_type or None,
-                    disability_percentage=data.get('disability_percentage') or data.get('disabilityPercentage'),
-                    assistive_devices=devices,
-                    preferred_communication=data.get('preferred_communication') or data.get('preferredCommunication') or 'text',
-                    accommodation_needs=data.get('accommodation_needs') or data.get('accommodationNeeds'),
-                    udid_number=data.get('udid_number') or data.get('udidNumber'),
-                )
 
         return Response(build_auth_response(user, request), status=status.HTTP_201_CREATED)
 
 
 class LoginView(APIView):
+    """
+    Feature 2: Sign-in view issuing access + refresh JWTs and returning full hydrated state.
+    """
     permission_classes = [AllowAny]
 
     def post(self, request):
@@ -203,10 +240,13 @@ class LoginView(APIView):
 
 
 class TokenRefreshView(APIView):
+    """
+    Feature 2: Token refresh and session rotation.
+    """
     permission_classes = [AllowAny]
 
     def post(self, request):
-        token_str = request.data.get('refresh_token') or request.data.get('refreshToken')
+        token_str = request.data.get('refresh_token') or request.data.get('refreshToken') or request.data.get('refresh')
         if not token_str:
             raise exceptions.ValidationError("Refresh token is required.")
 
@@ -225,10 +265,13 @@ class TokenRefreshView(APIView):
 
 
 class LogoutView(APIView):
+    """
+    Feature 2: Token blacklisting on logout.
+    """
     permission_classes = [AllowAny]
 
     def post(self, request):
-        token_str = request.data.get('refresh_token') or request.data.get('refreshToken')
+        token_str = request.data.get('refresh_token') or request.data.get('refreshToken') or request.data.get('refresh')
         if token_str:
             try:
                 refresh = RefreshToken(token_str)
@@ -246,6 +289,9 @@ class LogoutView(APIView):
 
 
 class SessionHydrationView(APIView):
+    """
+    Feature 2: Session hydration for page reload (/api/v1/auth/me).
+    """
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
@@ -271,6 +317,9 @@ class SessionHydrationView(APIView):
 
 
 class ForgotPasswordView(APIView):
+    """
+    Feature 7: Password reset request generating 15-minute OTP with console mail logging.
+    """
     permission_classes = [AllowAny]
 
     def post(self, request):
@@ -291,6 +340,7 @@ class ForgotPasswordView(APIView):
                 user=user,
                 email=user.email,
                 token_hash=token_hash,
+                otp_code=otp_code,
                 expires_at=expires_at,
                 used=False,
             )
@@ -309,6 +359,9 @@ class ForgotPasswordView(APIView):
 
 
 class VerifyResetTokenView(APIView):
+    """
+    Feature 7: Verifies single-use OTP validity.
+    """
     permission_classes = [AllowAny]
 
     def post(self, request):
@@ -342,6 +395,9 @@ class VerifyResetTokenView(APIView):
 
 
 class ResetPasswordView(APIView):
+    """
+    Feature 7: Confirm password reset and revoke existing sessions.
+    """
     permission_classes = [AllowAny]
 
     def post(self, request):

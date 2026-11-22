@@ -38,7 +38,10 @@ class DepartmentListView(APIView):
 
 
 class DepartmentDetailView(APIView):
-    permission_classes = [AllowAny]
+    def get_permissions(self):
+        if self.request.method in ['PUT', 'PATCH', 'DELETE']:
+            return [IsAdminRole()]
+        return [AllowAny()]
 
     def get(self, request, department_id):
         q = Q(id=department_id) if is_valid_uuid(department_id) else Q(code=str(department_id).upper())
@@ -46,6 +49,29 @@ class DepartmentDetailView(APIView):
         if not dept:
             raise exceptions.NotFound(f"Department '{department_id}' not found.")
         return Response(DepartmentSerializer(dept).data, status=status.HTTP_200_OK)
+
+    def patch(self, request, department_id):
+        q = Q(id=department_id) if is_valid_uuid(department_id) else Q(code=str(department_id).upper())
+        dept = Department.objects.filter(q).first()
+        if not dept:
+            raise exceptions.NotFound(f"Department '{department_id}' not found.")
+
+        data = request.data
+        if 'name' in data:
+            dept.name = data['name']
+        if 'hod' in data:
+            dept.hod = data['hod']
+        if 'description' in data:
+            dept.description = data['description']
+        if 'accessibility_compliance' in data:
+            dept.accessibility_compliance = int(data['accessibility_compliance'])
+        if 'is_active' in data:
+            dept.is_active = bool(data['is_active'])
+        dept.save()
+        return Response(DepartmentSerializer(dept).data, status=status.HTTP_200_OK)
+
+    def put(self, request, department_id):
+        return self.patch(request, department_id)
 
 
 class DepartmentCoursesView(APIView):
@@ -96,7 +122,10 @@ class CourseListView(APIView):
 
 
 class CourseDetailView(APIView):
-    permission_classes = [AllowAny]
+    def get_permissions(self):
+        if self.request.method in ['PUT', 'PATCH', 'DELETE']:
+            return [IsAdminRole()]
+        return [AllowAny()]
 
     def get(self, request, course_id):
         q = Q(id=course_id) if is_valid_uuid(course_id) else Q(code=str(course_id).upper())
@@ -104,3 +133,22 @@ class CourseDetailView(APIView):
         if not course:
             raise exceptions.NotFound(f"Course '{course_id}' not found.")
         return Response(CourseSerializer(course).data, status=status.HTTP_200_OK)
+
+    def patch(self, request, course_id):
+        q = Q(id=course_id) if is_valid_uuid(course_id) else Q(code=str(course_id).upper())
+        course = Course.objects.filter(q).select_related('department').first()
+        if not course:
+            raise exceptions.NotFound(f"Course '{course_id}' not found.")
+
+        data = request.data
+        if 'name' in data:
+            course.name = data['name']
+        if 'total_semesters' in data:
+            course.total_semesters = int(data['total_semesters'])
+        if 'is_active' in data:
+            course.is_active = bool(data['is_active'])
+        course.save()
+        return Response(CourseSerializer(course).data, status=status.HTTP_200_OK)
+
+    def put(self, request, course_id):
+        return self.patch(request, course_id)
