@@ -45,6 +45,7 @@ class User(AbstractBaseUser, PermissionsMixin):
     role = models.CharField(max_length=20, choices=UserRole.choices, default=UserRole.STUDENT)
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
+    date_joined = models.DateTimeField(default=timezone.now)
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -55,7 +56,7 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     class Meta:
         db_table = 'users'
-        ordering = ['-created_at']
+        ordering = ['-date_joined']
 
     def __str__(self):
         return f"{self.email} ({self.role})"
@@ -66,6 +67,7 @@ class PasswordResetToken(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='password_reset_tokens')
     email = models.EmailField(db_index=True)
     token_hash = models.CharField(max_length=128)
+    otp_code = models.CharField(max_length=10, blank=True, null=True)
     expires_at = models.DateTimeField()
     used = models.BooleanField(default=False)
     used_at = models.DateTimeField(null=True, blank=True)

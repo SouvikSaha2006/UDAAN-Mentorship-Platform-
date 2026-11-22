@@ -3,6 +3,28 @@ from accounts.models import User, UserRole, PasswordResetToken
 from students.serializers import StudentProfileSerializer, AccessibilitySettingsSerializer
 
 
+class UserRegisterSerializer(serializers.ModelSerializer):
+    password = serializers.CharField(write_only=True, min_length=6)
+    name = serializers.CharField(write_only=True)
+    role = serializers.ChoiceField(choices=UserRole.choices, default=UserRole.STUDENT)
+
+    class Meta:
+        model = User
+        fields = ['email', 'password', 'name', 'role']
+
+    def validate_email(self, value):
+        val = value.strip().lower()
+        if User.objects.filter(email=val).exists():
+            raise serializers.ValidationError("An account with this institutional email already exists.")
+        return val
+
+
+class UserLoginSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    password = serializers.CharField(write_only=True)
+    role = serializers.CharField(required=False, allow_null=True)
+
+
 class UserResponseSerializer(serializers.ModelSerializer):
     name = serializers.SerializerMethodField()
     fullName = serializers.SerializerMethodField()
@@ -40,6 +62,7 @@ class UserResponseSerializer(serializers.ModelSerializer):
             'bio',
             'careerGoal',
             'accessibilityNeeds',
+            'date_joined',
             'created_at',
             'updated_at',
         ]

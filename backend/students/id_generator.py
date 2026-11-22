@@ -1,18 +1,18 @@
 import threading
 from django.db import transaction
-from academics.models import StudentIDSequence
+from students.models import StudentSequence
 
 _seq_lock = threading.Lock()
 
 
-def generate_student_id(dept_code="GEN", year=2026, prefix="UDN") -> str:
+def generate_student_id(department=None, dept_code="GEN", year=2026, prefix="UDN") -> str:
     """
     Concurrency-Safe, Deterministic Student ID Generator (Feature 6).
     Enforces format: UDN-<YEAR>-<DEPT_CODE>-<4_DIGIT_SEQ> (e.g. UDN-2026-CSE-0001).
-    Combines Python threading lock with Django DB atomic transaction and select_for_update()
-    so concurrent registrations never produce duplicate IDs.
+    Combines thread locking with database atomic transaction and select_for_update() on StudentSequence
+    so concurrent student registrations never produce duplicate or out-of-order IDs.
     """
-    clean_dept = (dept_code or "GEN").upper().strip()
+    clean_dept = (department.code if department else dept_code or "GEN").upper().strip()
     dept_mapping = {
         "COMPUTER SCIENCE & ENGINEERING": "CSE",
         "COMPUTER SCIENCE": "CSE",
@@ -30,14 +30,16 @@ def generate_student_id(dept_code="GEN", year=2026, prefix="UDN") -> str:
 
     with _seq_lock:
         with transaction.atomic():
-            seq_obj, created = StudentIDSequence.objects.select_for_update().get_or_create(
+            seq_obj, created = StudentSequence.objects.select_for_update().get_or_create(
                 year=year,
                 dept_code=clean_dept,
-                defaults={'last_seq': 1},
+                defaults={'last_number': 1, 'department': department},
             )
             if not created:
-                seq_obj.last_seq += 1
-                seq_obj.save(update_fields=['last_seq', 'updated_at'])
-            next_seq = seq_obj.last_seq
+                seq_obj.last_number += 1
+                if department and not seq_obj.department:
+                    seq_obj.department = department
+                seq_obj.save(update_fields=['last_number', 'department', 'updated_at'])
+            next_num = seq_obj.last_number
 
-    return f"{prefix}-{year}-{clean_dept}-{next_seq:04d}"
+    return f"{prefix}-{year}-{clean_dept}-{next_num:04d}"

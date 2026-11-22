@@ -5,6 +5,28 @@ from django.utils import timezone
 from academics.models import Department, Course
 
 
+class StudentSequence(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    year = models.IntegerField(default=2026)
+    department = models.ForeignKey(
+        Department,
+        on_delete=models.CASCADE,
+        related_name='student_sequences',
+        null=True,
+        blank=True,
+    )
+    dept_code = models.CharField(max_length=20, default='GEN')
+    last_number = models.PositiveIntegerField(default=0)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'student_sequences'
+        unique_together = ('year', 'dept_code')
+
+    def __str__(self):
+        return f"{self.year}-{self.dept_code}: {self.last_number}"
+
+
 class StudentProfile(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.OneToOneField(
@@ -74,6 +96,10 @@ class UserAccessibilitySettings(models.Model):
         on_delete=models.CASCADE,
         related_name='accessibility_settings',
     )
+    # General flexible preferences store
+    preferences = models.JSONField(default=dict, blank=True)
+
+    # Explicit fields matching AccessibilityContext.jsx keys
     font_scale = models.FloatField(default=1.0)
     dark_mode = models.BooleanField(default=False)
     high_contrast = models.BooleanField(default=False)

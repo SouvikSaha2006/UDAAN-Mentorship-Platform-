@@ -321,3 +321,55 @@ class TestCustomExceptionHandlerAndAccessibilityEndpoints:
         api_client.credentials()
         deact_login = api_client.post('/api/v1/auth/login', {'email': 'student@udaan.edu', 'password': 'Password@123'})
         assert deact_login.status_code == status.HTTP_403_FORBIDDEN
+
+
+@pytest.mark.django_db
+class TestFeature9SerializersAndAtomicSequences:
+    def test_student_me_and_public_serializers(self, seeded_db):
+        from students.serializers import StudentMeSerializer, StudentPublicSerializer
+        student_user = User.objects.get(email='student@udaan.edu')
+        profile = student_user.student_profile
+
+        # StudentMeSerializer includes private fields & computed profile_completion
+        me_ser = StudentMeSerializer(profile)
+        me_data = me_ser.data
+        assert me_data['phone'] == '+91 98765 43210'
+        assert me_data['guardianPhone'] == '+91 98765 11223'
+        assert me_data['udidNumber'] == 'KA011042004008921'
+        assert me_data['accommodationNeeds'] is not None
+        assert me_data['profileCompletion'] >= 70
+
+        # StudentPublicSerializer strips private fields
+        pub_ser = StudentPublicSerializer(profile)
+        pub_data = pub_ser.data
+        assert 'phone' not in pub_data
+        assert 'guardianPhone' not in pub_data
+        assert 'guardianName' not in pub_data
+        assert 'udidNumber' not in pub_data
+        assert 'accommodationNeeds' not in pub_data
+        assert 'address' not in pub_data
+        assert pub_data['fullName'] == 'Aarav Sharma'
+        assert pub_data['studentId'] == 'UDN-2026-CSE-0001'
+
+    def test_auth_serializers_password_write_only(self):
+        from accounts.serializers import UserRegisterSerializer, UserLoginSerializer
+        reg_ser = UserRegisterSerializer()
+        assert reg_ser.fields['password'].write_only is True
+
+        login_ser = UserLoginSerializer()
+        assert login_ser.fields['password'].write_only is True
+
+    def test_student_sequence_atomic_increment(self, db):
+        from students.models import StudentSequence
+        dept = Department.objects.create(code='CIV', name='Civil Engineering')
+
+        # Generate sequential IDs using StudentSequence
+        id_1 = generate_student_id(department=dept, year=2026)
+        id_2 = generate_student_id(department=dept, year=2026)
+
+        assert id_1 == 'UDN-2026-CIV-0001'
+        assert id_2 == 'UDN-2026-CIV-0002'
+
+        seq = StudentSequence.objects.get(year=2026, dept_code='CIV')
+        assert seq.last_number == 2
+        assert seq.department == dept
