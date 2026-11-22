@@ -44,14 +44,14 @@ class DepartmentDetailView(APIView):
         return [AllowAny()]
 
     def get(self, request, department_id):
-        q = Q(id=department_id) if is_valid_uuid(department_id) else Q(code=str(department_id).upper())
+        q = Q(id=department_id) if is_valid_uuid(department_id) else (Q(code=str(department_id).upper()) | Q(name__iexact=str(department_id)))
         dept = Department.objects.filter(q).first()
         if not dept:
             raise exceptions.NotFound(f"Department '{department_id}' not found.")
         return Response(DepartmentSerializer(dept).data, status=status.HTTP_200_OK)
 
     def patch(self, request, department_id):
-        q = Q(id=department_id) if is_valid_uuid(department_id) else Q(code=str(department_id).upper())
+        q = Q(id=department_id) if is_valid_uuid(department_id) else (Q(code=str(department_id).upper()) | Q(name__iexact=str(department_id)))
         dept = Department.objects.filter(q).first()
         if not dept:
             raise exceptions.NotFound(f"Department '{department_id}' not found.")
@@ -78,7 +78,7 @@ class DepartmentCoursesView(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request, department_id):
-        q = Q(id=department_id) if is_valid_uuid(department_id) else Q(code=str(department_id).upper())
+        q = Q(id=department_id) if is_valid_uuid(department_id) else (Q(code=str(department_id).upper()) | Q(name__iexact=str(department_id)))
         dept = Department.objects.filter(q).first()
         if not dept:
             raise exceptions.NotFound(f"Department '{department_id}' not found.")
@@ -103,7 +103,7 @@ class CourseListView(APIView):
         queryset = Course.objects.all().select_related('department')
         department_id = request.query_params.get('department_id')
         if department_id:
-            q = Q(department__id=department_id) if is_valid_uuid(department_id) else Q(department__code=str(department_id).upper())
+            q = Q(department__id=department_id) if is_valid_uuid(department_id) else (Q(department__code=str(department_id).upper()) | Q(department__name__iexact=str(department_id)))
             queryset = queryset.filter(q)
 
         is_active = request.query_params.get('is_active')
@@ -128,14 +128,14 @@ class CourseDetailView(APIView):
         return [AllowAny()]
 
     def get(self, request, course_id):
-        q = Q(id=course_id) if is_valid_uuid(course_id) else Q(code=str(course_id).upper())
+        q = Q(id=course_id) if is_valid_uuid(course_id) else (Q(code=str(course_id).upper()) | Q(name__iexact=str(course_id)))
         course = Course.objects.filter(q).select_related('department').first()
         if not course:
             raise exceptions.NotFound(f"Course '{course_id}' not found.")
         return Response(CourseSerializer(course).data, status=status.HTTP_200_OK)
 
     def patch(self, request, course_id):
-        q = Q(id=course_id) if is_valid_uuid(course_id) else Q(code=str(course_id).upper())
+        q = Q(id=course_id) if is_valid_uuid(course_id) else (Q(code=str(course_id).upper()) | Q(name__iexact=str(course_id)))
         course = Course.objects.filter(q).select_related('department').first()
         if not course:
             raise exceptions.NotFound(f"Course '{course_id}' not found.")

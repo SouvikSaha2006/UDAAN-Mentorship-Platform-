@@ -69,7 +69,7 @@ class CourseCreateSerializer(serializers.ModelSerializer):
 
 def models_Q_dept(val):
     from django.db.models import Q
-    return Q(id=val) if is_valid_uuid(val) else Q(code=str(val).upper())
+    return Q(id=val) if is_valid_uuid(val) else (Q(code=str(val).upper()) | Q(name__iexact=str(val)))
 
 
 def is_valid_uuid(val):
