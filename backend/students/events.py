@@ -6,8 +6,22 @@ from typing import Dict, Any, Generator
 from django.http import StreamingHttpResponse
 from rest_framework.views import APIView
 from rest_framework.permissions import AllowAny
+from rest_framework.renderers import BaseRenderer
 
 logger = logging.getLogger(__name__)
+
+
+class ServerSentEventRenderer(BaseRenderer):
+    """
+    Renderer for Server-Sent Events (text/event-stream).
+    Prevents DRF content negotiation 406 Not Acceptable errors on SSE requests.
+    """
+    media_type = "text/event-stream"
+    format = "event-stream"
+    charset = "utf-8"
+
+    def render(self, data, accepted_media_type=None, renderer_context=None):
+        return data
 
 
 class EventBroadcaster:
@@ -58,14 +72,20 @@ class RealtimeStreamView(APIView):
     Server-Sent Events (SSE) endpoint streaming real-time database mutations.
     """
     permission_classes = [AllowAny]
+    renderer_classes = [ServerSentEventRenderer]
+
+    def perform_content_negotiation(self, request, force=False):
+        """
+        Always accept text/event-stream requests without raising 406 Not Acceptable.
+        """
+        return (ServerSentEventRenderer(), ServerSentEventRenderer.media_type)
 
     def get(self, request):
-        q = broadcaster.subscribe()
-
         def event_stream() -> Generator[str, None, None]:
-            # Initial handshake frame
-            yield "event: connected\ndata: {\"ok\": true, \"status\": \"connected\"}\n\n"
+            q = broadcaster.subscribe()
             try:
+                # Initial handshake frame
+                yield "event: connected\ndata: {\"ok\": true, \"status\": \"connected\"}\n\n"
                 while True:
                     try:
                         msg = q.get(timeout=15)

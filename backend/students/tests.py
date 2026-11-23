@@ -106,3 +106,13 @@ class StudentProfileAndSequenceTests(TestCase):
         self.assertEqual(len(ids), len(set(ids)))
         for sid in ids:
             self.assertTrue(sid.startswith('UDN-2026-CSE-'))
+
+    def test_realtime_stream_accepts_sse_header(self):
+        # Verify SSE endpoint accepts text/event-stream without 406 Not Acceptable
+        res = self.client.get('/api/v1/realtime/stream/', HTTP_ACCEPT='text/event-stream')
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertIn('text/event-stream', res.headers.get('Content-Type', ''))
+        first_chunk = next(res.streaming_content)
+        self.assertIn(b'event: connected', first_chunk)
+        res.close()
+
