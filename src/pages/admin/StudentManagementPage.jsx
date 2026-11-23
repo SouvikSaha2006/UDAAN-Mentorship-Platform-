@@ -46,8 +46,8 @@ export default function StudentManagementPage() {
     return () => clearTimeout(handler);
   }, [query, loadStudents]);
 
-  // Merge backend data with fallback format
-  const displayStudents = useBackend && apiStudents.length > 0
+  // Render live students from Django REST API
+  const displayStudents = useBackend
     ? apiStudents.map((s) => ({
         id: s.id,
         studentId: s.studentId,
@@ -56,21 +56,20 @@ export default function StudentManagementPage() {
         rollNumber: s.rollNumber || s.studentId,
         department: s.departmentName || s.department || 'General',
         course: s.courseName || s.course || 'B.Tech',
-        semester: `${s.semester}${s.semester === 1 ? 'st' : s.semester === 2 ? 'nd' : s.semester === 3 ? 'rd' : 'th'} Semester`,
-        accessibilityProfile: s.disabilityType || (s.assistiveDevices?.length > 0 ? s.assistiveDevices[0] : 'Standard Support'),
+        semester:
+          typeof s.semester === 'number'
+            ? `${s.semester}${s.semester === 1 ? 'st' : s.semester === 2 ? 'nd' : s.semester === 3 ? 'rd' : 'th'} Semester`
+            : s.semester || '1st Semester',
+        accessibilityProfile:
+          s.disabilityType ||
+          (s.assistiveDevices?.length > 0 ? s.assistiveDevices[0] : 'Standard Support'),
         progressScore: s.profileCompletion || 75,
         status: s.isActive ? 'Active' : 'Deactivated',
         isActive: s.isActive !== false,
       }))
-    : fallbackStudents.filter(
-        (s) =>
-          !query ||
-          s.name.toLowerCase().includes(query.toLowerCase()) ||
-          s.rollNumber.toLowerCase().includes(query.toLowerCase()) ||
-          s.department.toLowerCase().includes(query.toLowerCase())
-      );
+    : [];
 
-  // Feature 4: Activate / Deactivate student account
+  // Feature 4: Activate / Deactivate student account directly in backend
   const handleToggleStatus = async (student) => {
     const targetStudentId = student.studentId || student.id;
     const nextActive = !student.isActive;
@@ -87,25 +86,30 @@ export default function StudentManagementPage() {
     }
   };
 
-  const handleAdd = (e) => {
+  const handleAdd = async (e) => {
     e.preventDefault();
-    addStudentRecord({
-      name,
-      email,
-      rollNumber,
-      department,
-      course,
-      semester,
-      cgpa: 8.5,
-      assignedMentorId: 'men-201',
-      accessibilityProfile,
-      accommodations: ['Extended Exam Time (+30 mins)'],
-    });
-    showToast(`Added student ${name} to directory.`, 'success');
-    setOpen(false);
-    setName('');
-    setEmail('');
-    setRollNumber('');
+    try {
+      const res = await apiClient.auth.register({
+        name,
+        email,
+        role: 'student',
+        department,
+        course,
+        semester,
+        password: 'Password@123',
+        accessibilityNeeds: [accessibilityProfile],
+        disabilityType: accessibilityProfile,
+      });
+      const sid = res?.user?.studentId || res?.profile?.studentId || '';
+      showToast(`Student ${name} successfully registered in database (${sid}).`, 'success');
+      setOpen(false);
+      setName('');
+      setEmail('');
+      setRollNumber('');
+      await loadStudents(query);
+    } catch (err) {
+      showToast(err.message || 'Failed to register student.', 'error');
+    }
   };
 
   return (

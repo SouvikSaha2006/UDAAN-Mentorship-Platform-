@@ -145,15 +145,29 @@ class RegisterView(APIView):
             if "hearing" in dt_lower:
                 caption_mode = True
 
+        # Initial UI preferences passed from frontend or derived
+        hc_pref = bool(data.get('highContrast') if 'highContrast' in data else (data.get('high_contrast') if 'high_contrast' in data else high_contrast))
+        df_pref = bool(data.get('dyslexiaFont') if 'dyslexiaFont' in data else (data.get('dyslexia_font') if 'dyslexia_font' in data else dyslexia_font))
+        cm_pref = bool(data.get('captionMode') if 'captionMode' in data else (data.get('caption_mode') if 'caption_mode' in data else caption_mode))
+        dm_pref = bool(data.get('darkMode') if 'darkMode' in data else data.get('dark_mode', False))
+        fs_pref = float(data.get('fontScale') or data.get('font_scale') or 1.0)
+        rm_pref = bool(data.get('readingMode') if 'readingMode' in data else data.get('reading_mode', False))
+
         UserAccessibilitySettings.objects.create(
             user=user,
-            high_contrast=high_contrast,
-            dyslexia_font=dyslexia_font,
-            caption_mode=caption_mode,
+            font_scale=fs_pref,
+            dark_mode=dm_pref,
+            high_contrast=hc_pref,
+            dyslexia_font=df_pref,
+            reading_mode=rm_pref,
+            caption_mode=cm_pref,
             preferences={
-                "high_contrast": high_contrast,
-                "dyslexia_font": dyslexia_font,
-                "caption_mode": caption_mode,
+                "font_scale": fs_pref,
+                "dark_mode": dm_pref,
+                "high_contrast": hc_pref,
+                "dyslexia_font": df_pref,
+                "reading_mode": rm_pref,
+                "caption_mode": cm_pref,
             },
         )
 
@@ -195,6 +209,14 @@ class RegisterView(APIView):
                 student_id=student_id,
                 full_name=name,
                 phone=data.get('phone'),
+                date_of_birth=data.get('date_of_birth') or data.get('dateOfBirth'),
+                gender=data.get('gender'),
+                address=data.get('address'),
+                guardian_name=data.get('guardian_name') or data.get('guardianName'),
+                guardian_phone=data.get('guardian_phone') or data.get('guardianPhone'),
+                career_goal=data.get('career_goal') or data.get('careerGoal'),
+                avatar_url=data.get('avatar_url') or data.get('avatarUrl'),
+                avatar_color=data.get('avatar_color') or data.get('avatarColor') or 'from-royal-600 to-violet-600',
                 department=dept,
                 course=course,
                 semester=semester_int,
@@ -202,7 +224,7 @@ class RegisterView(APIView):
                 bio=data.get('bio', 'New UDAAN member.'),
                 profile_completion=70,
                 cgpa=8.0,
-                roll_number=f"{dept.code if dept else 'GEN'}-2026-{student_id.split('-')[-1]}",
+                roll_number=data.get('roll_number') or f"{dept.code if dept else 'GEN'}-2026-{student_id.split('-')[-1]}",
                 disability_type=disability_type or None,
                 disability_percentage=data.get('disability_percentage') or data.get('disabilityPercentage'),
                 assistive_devices=devices,

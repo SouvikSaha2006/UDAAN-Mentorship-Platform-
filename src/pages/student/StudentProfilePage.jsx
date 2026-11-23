@@ -141,28 +141,29 @@ export default function StudentProfilePage() {
     };
 
     try {
-      // 1. Try real backend personal, academics, and accessibility sync
-      await apiClient.students.updatePersonal({
+      // Direct write to live Django database
+      const pRes = await apiClient.students.updatePersonal({
         fullName: name,
         phone,
         bio,
         careerGoal,
       });
-      await apiClient.students.updateAcademics({
+      const aRes = await apiClient.students.updateAcademics({
         department,
         course,
         semester,
       });
-      await apiClient.students.updateAccessibility({
+      const a11yRes = await apiClient.students.updateAccessibility({
         assistiveDevices: needs,
         accessibilityNeeds: needs,
       });
-      updateProfile(updates);
-      showToast('Student profile synchronized with backend database!', 'success');
-    } catch {
-      // 2. Graceful fallback to localStorage
-      updateProfile(updates);
-      showToast('Student profile updated (saved locally).', 'success');
+
+      // Update React state immediately using the fresh serialized database response
+      const freshRecord = aRes || pRes || a11yRes?.profile;
+      updateProfile(freshRecord);
+      showToast('Student profile synchronized with live Django database!', 'success');
+    } catch (err) {
+      showToast(err.message || 'Failed to save profile changes.', 'error');
     } finally {
       setIsSaving(false);
     }

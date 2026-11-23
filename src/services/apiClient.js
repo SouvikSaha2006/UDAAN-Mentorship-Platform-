@@ -204,7 +204,6 @@ export const apiClient = {
         if (data.refresh_token) {
           storageService.set('refresh_token', data.refresh_token);
         }
-        storageService.set('current_user', data.user);
       }
       return data;
     },
@@ -219,16 +218,12 @@ export const apiClient = {
         if (data.refresh_token) {
           storageService.set('refresh_token', data.refresh_token);
         }
-        storageService.set('current_user', data.user);
       }
       return data;
     },
 
     async getMe() {
       const data = await apiRequest('/auth/me');
-      if (data?.user) {
-        storageService.set('current_user', data.user);
-      }
       return data;
     },
 

@@ -117,6 +117,7 @@ class StudentPersonalView(APIView):
 
         profile.profile_completion = calculate_profile_completion(profile)
         profile.save()
+        profile.refresh_from_db()
 
         serializer = StudentMeSerializer(profile, context={'request': request})
         return Response(serializer.data, status=status.HTTP_200_OK)
@@ -174,6 +175,7 @@ class StudentAcademicsView(APIView):
 
         profile.profile_completion = calculate_profile_completion(profile)
         profile.save()
+        profile.refresh_from_db()
 
         serializer = StudentMeSerializer(profile, context={'request': request})
         return Response(serializer.data, status=status.HTTP_200_OK)
@@ -271,6 +273,8 @@ class StudentAccessibilityView(APIView):
             a11y.preferences.update(data['preferences'])
 
         a11y.save()
+        profile.refresh_from_db()
+        a11y.refresh_from_db()
 
         return Response(
             {

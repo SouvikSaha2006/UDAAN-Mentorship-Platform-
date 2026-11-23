@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
-import { storageService } from '../services/storageService';
+import { apiClient } from '../services/apiClient';
 import {
   MENTORS_DIRECTORY,
   STUDENTS_DIRECTORY,
@@ -24,50 +24,22 @@ import {
 
 const AppDataContext = createContext(null);
 
-function usePersistedState(key, initialValue) {
-  const [state, setState] = useState(() => {
-    const saved = storageService.get(key, null);
-    return saved !== null ? saved : initialValue;
-  });
-
-  useEffect(() => {
-    storageService.set(key, state);
-  }, [key, state]);
-
-  return [state, setState];
-}
-
 export function AppDataProvider({ children }) {
-  const [mentors, setMentors] = usePersistedState('mentors', MENTORS_DIRECTORY);
-  const [students, setStudents] = usePersistedState('students', STUDENTS_DIRECTORY);
-  const [facultyList, setFacultyList] = usePersistedState('faculty', FACULTY_DIRECTORY);
-  const [departments, setDepartments] = usePersistedState('departments', DEPARTMENTS_DATA);
+  const [mentors, setMentors] = useState(MENTORS_DIRECTORY);
+  const [students, setStudents] = useState(STUDENTS_DIRECTORY);
+  const [facultyList, setFacultyList] = useState(FACULTY_DIRECTORY);
+  const [departments, setDepartments] = useState(DEPARTMENTS_DATA);
 
-  const [mentorshipRequests, setMentorshipRequests] = usePersistedState(
-    'mentorship_requests',
-    INITIAL_MENTORSHIP_REQUESTS
-  );
-  const [sessions, setSessions] = usePersistedState('sessions', INITIAL_SESSIONS);
-  const [learningPlans, setLearningPlans] = usePersistedState(
-    'learning_plans',
-    INITIAL_LEARNING_PLANS
-  );
-  const [assignments, setAssignments] = usePersistedState('assignments', INITIAL_ASSIGNMENTS);
-  const [materials, setMaterials] = usePersistedState('materials', STUDY_MATERIALS);
-  const [careerJobs, setCareerJobs] = usePersistedState('career_jobs', CAREER_OPPORTUNITIES);
-  const [supportRequests, setSupportRequests] = usePersistedState(
-    'support_requests',
-    INITIAL_SUPPORT_REQUESTS
-  );
-  const [conversations, setConversations] = usePersistedState(
-    'conversations',
-    INITIAL_CONVERSATIONS
-  );
-  const [notifications, setNotifications] = usePersistedState(
-    'notifications',
-    INITIAL_NOTIFICATIONS
-  );
-  const [platformSettings, setPlatformSettings] = usePersistedState('platform_settings', {
+  const [mentorshipRequests, setMentorshipRequests] = useState(INITIAL_MENTORSHIP_REQUESTS);
+  const [sessions, setSessions] = useState(INITIAL_SESSIONS);
+  const [learningPlans, setLearningPlans] = useState(INITIAL_LEARNING_PLANS);
+  const [assignments, setAssignments] = useState(INITIAL_ASSIGNMENTS);
+  const [materials, setMaterials] = useState(STUDY_MATERIALS);
+  const [careerJobs, setCareerJobs] = useState(CAREER_OPPORTUNITIES);
+  const [supportRequests, setSupportRequests] = useState(INITIAL_SUPPORT_REQUESTS);
+  const [conversations, setConversations] = useState(INITIAL_CONVERSATIONS);
+  const [notifications, setNotifications] = useState(INITIAL_NOTIFICATIONS);
+  const [platformSettings, setPlatformSettings] = useState({
     institutionName: 'UDAAN National Institute of Inclusive Technology',
     academicYear: '2026 - 2027',
     maxMenteesPerMentor: 6,
@@ -76,6 +48,25 @@ export function AppDataProvider({ children }) {
     allowStudentSelfMatching: true,
     maintenanceMode: false,
   });
+
+  // Sync real academic departments from live Django database
+  useEffect(() => {
+    let isMounted = true;
+    async function loadAcademicMetadata() {
+      try {
+        const liveDepts = await apiClient.academics.getDepartments();
+        if (isMounted && Array.isArray(liveDepts) && liveDepts.length > 0) {
+          setDepartments(liveDepts);
+        }
+      } catch {
+        // Fallback silently if unauthenticated or network unavailable
+      }
+    }
+    loadAcademicMetadata();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const addNotification = useCallback(
     ({ category = 'System', title, message }) => {
@@ -495,7 +486,6 @@ export function AppDataProvider({ children }) {
   );
 
   const resetDemoData = useCallback(() => {
-    storageService.clearAll();
     window.location.reload();
   }, []);
 

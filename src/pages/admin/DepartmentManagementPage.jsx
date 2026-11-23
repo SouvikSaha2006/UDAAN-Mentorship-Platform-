@@ -50,60 +50,17 @@ export default function DepartmentManagementPage() {
     };
 
     try {
-      // 1. Feature 8: Admin-protected API call
+      // Feature 8: Admin-protected API call
       const created = await apiClient.academics.createDepartment(payload);
       setDeptList((prev) => [...prev, created]);
-      addDepartmentRecord({
-        id: created.id,
-        name: created.name,
-        code: created.code,
-        hod: created.hod,
-        studentsCount: created.studentsCount || 15,
-        mentorsCount: created.mentorsCount || 4,
-        activeMentorships: created.activeMentorships || 12,
-        accessibilityCompliance: created.accessibilityCompliance || 96,
-      });
-      showToast(`Department ${name} registered successfully via API.`, 'success');
+      showToast(`Department ${name} registered successfully in database.`, 'success');
       setOpen(false);
       setName('');
       setCode('');
       setHod('');
       setDescription('');
     } catch (err) {
-      // 2. Fallback to local state if server is offline or in local demo mode
-      addDepartmentRecord({
-        name,
-        code: code.toUpperCase(),
-        hod,
-        studentsCount: 15,
-        mentorsCount: 4,
-        activeMentorships: 12,
-        accessibilityCompliance: 96,
-      });
-      setDeptList((prev) => [
-        ...prev,
-        {
-          id: `dept-${Date.now()}`,
-          name,
-          code: code.toUpperCase(),
-          hod,
-          studentsCount: 15,
-          mentorsCount: 4,
-          activeMentorships: 12,
-          accessibilityCompliance: 96,
-        },
-      ]);
-      showToast(
-        err.status === 403
-          ? 'Admin authorization required. Saved to local storage session.'
-          : `Department ${name} added (Local fallback mode).`,
-        err.status === 403 ? 'warning' : 'info'
-      );
-      setOpen(false);
-      setName('');
-      setCode('');
-      setHod('');
-      setDescription('');
+      showToast(err.message || `Failed to create department: ${err.status === 403 ? 'Admin authorization required.' : ''}`, 'error');
     } finally {
       setIsSubmitting(false);
     }

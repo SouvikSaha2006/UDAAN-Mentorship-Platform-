@@ -34,7 +34,6 @@ export const apiService = {
       });
       if (data?.access_token) {
         storageService.set('auth_token', data.access_token);
-        storageService.set('current_user', data.user);
       }
       return data;
     },
@@ -46,7 +45,6 @@ export const apiService = {
       });
       if (data?.access_token) {
         storageService.set('auth_token', data.access_token);
-        storageService.set('current_user', data.user);
       }
       return data;
     },

@@ -1,5 +1,4 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { DEMO_ACCOUNTS } from '../data/mockUsers';
 import { storageService } from '../services/storageService';
 import { apiClient } from '../services/apiClient';
 import { useAccessibility } from './AccessibilityContext';
@@ -9,27 +8,11 @@ const AuthContext = createContext(null);
 export function AuthProvider({ children }) {
   const { applySettings } = useAccessibility();
 
-  const [registeredUsers, setRegisteredUsers] = useState(() => {
-    const saved = storageService.get('users', null);
-    return saved || DEMO_ACCOUNTS;
-  });
-
-  const [currentUser, setCurrentUser] = useState(() => {
-    return storageService.get('current_user', null);
-  });
-
-  const [currentProfile, setCurrentProfile] = useState(() => {
-    return storageService.get('current_profile', null);
-  });
-
+  const [currentUser, setCurrentUser] = useState(null);
+  const [currentProfile, setCurrentProfile] = useState(null);
   const [isHydrating, setIsHydrating] = useState(true);
 
-  const persistUsers = useCallback((nextUsers) => {
-    setRegisteredUsers(nextUsers);
-    storageService.set('users', nextUsers);
-  }, []);
-
-  // Feature 2: Session Hydration on page reload
+  // Session Hydration directly from the live Django API on mount/page reload
   useEffect(() => {
     let isMounted = true;
     async function hydrateSession() {
@@ -43,22 +26,18 @@ export function AuthProvider({ children }) {
         const data = await apiClient.auth.getMe();
         if (isMounted && data?.user) {
           setCurrentUser(data.user);
-          storageService.set('current_user', data.user);
           if (data.profile) {
             setCurrentProfile(data.profile);
-            storageService.set('current_profile', data.profile);
           }
           if (data.accessibility_settings) {
             applySettings(data.accessibility_settings);
           }
         }
       } catch (err) {
-        // If token expired or invalid, clear session
-        if (err.status === 401) {
+        // If token expired or invalid, revoke stored tokens
+        if (err.status === 401 || err.status === 403) {
           storageService.remove('auth_token');
           storageService.remove('refresh_token');
-          storageService.remove('current_user');
-          storageService.remove('current_profile');
           if (isMounted) {
             setCurrentUser(null);
             setCurrentProfile(null);
@@ -75,13 +54,12 @@ export function AuthProvider({ children }) {
     };
   }, [applySettings]);
 
-  // Feature 2: Login
+  // Real database authentication
   const login = useCallback(
     async ({ email, password, role }) => {
       const normalizedEmail = email.trim().toLowerCase();
 
       try {
-        // 1. Try real backend login
         const data = await apiClient.auth.login({
           email: normalizedEmail,
           password,
@@ -89,11 +67,9 @@ export function AuthProvider({ children }) {
         });
 
         setCurrentUser(data.user);
-        storageService.set('current_user', data.user);
 
         if (data.profile) {
           setCurrentProfile(data.profile);
-          storageService.set('current_profile', data.profile);
         }
 
         // Apply student's persisted UI accessibility settings immediately
@@ -103,31 +79,16 @@ export function AuthProvider({ children }) {
 
         return { ok: true, user: data.user, profile: data.profile };
       } catch (apiErr) {
-        // 2. Fallback to demo accounts if server offline
-        const matched = registeredUsers.find(
-          (u) =>
-            u.email.toLowerCase() === normalizedEmail &&
-            (!role || u.role === role) &&
-            u.password === password
-        );
-
-        if (!matched) {
-          return {
-            ok: false,
-            error: apiErr.message || 'Invalid credentials or role selection.',
-          };
-        }
-
-        const { password: _removed, ...safeUser } = matched;
-        setCurrentUser(safeUser);
-        storageService.set('current_user', safeUser);
-        return { ok: true, user: safeUser };
+        return {
+          ok: false,
+          error: apiErr.message || 'Invalid credentials or role selection.',
+        };
       }
     },
-    [registeredUsers, applySettings]
+    [applySettings]
   );
 
-  // Quick Demo Role Login
+  // Quick Demo Role Login authenticated directly against the live seeded database
   const loginWithDemoRole = useCallback(
     async (role) => {
       const demoEmail = `${role}@udaan.edu`;
@@ -136,19 +97,16 @@ export function AuthProvider({ children }) {
     [login]
   );
 
-  // Feature 1: Student & Mentor Registration
+  // Real database registration with atomic student ID sequence allocation
   const register = useCallback(
     async (payload) => {
       try {
-        // 1. Try real backend registration
         const data = await apiClient.auth.register(payload);
 
         setCurrentUser(data.user);
-        storageService.set('current_user', data.user);
 
         if (data.profile) {
           setCurrentProfile(data.profile);
-          storageService.set('current_profile', data.profile);
         }
 
         if (data.accessibility_settings) {
@@ -157,72 +115,50 @@ export function AuthProvider({ children }) {
 
         return { ok: true, user: data.user, profile: data.profile };
       } catch (apiErr) {
-        // 2. Fallback to local demo storage
-        const exists = registeredUsers.some(
-          (u) => u.email.toLowerCase() === payload.email.trim().toLowerCase()
-        );
-        if (exists) {
-          return { ok: false, error: apiErr.message || 'An account with this email already exists.' };
-        }
-
-        const newUser = {
-          id: `${payload.role.slice(0, 3)}-${Date.now().toString().slice(-4)}`,
-          studentId: `UDN-2026-${payload.department?.slice(0, 3).toUpperCase() || 'GEN'}-${Date.now().toString().slice(-4)}`,
-          role: payload.role,
-          name: payload.name.trim(),
-          email: payload.email.trim().toLowerCase(),
-          password: payload.password,
-          department: payload.department || 'Computer Science & Engineering',
-          course: payload.course || (payload.role === 'student' ? 'B.Tech Computer Science' : undefined),
-          semester: payload.semester || (payload.role === 'student' ? '1st Semester' : undefined),
-          qualification: payload.qualification || (payload.role === 'mentor' ? 'M.Tech / Industry Specialist' : undefined),
-          experienceYears: payload.experienceYears ? Number(payload.experienceYears) : 4,
-          expertise: payload.expertise
-            ? payload.expertise.split(',').map((s) => s.trim()).filter(Boolean)
-            : ['Academic Guidance', 'Career Mentoring'],
-          accessibilityNeeds: payload.accessibilityNeeds || ['Screen Reader Support'],
-          assignedMentorId: payload.role === 'student' ? 'men-201' : undefined,
-          profileCompletion: 75,
-          cgpa: 8.5,
-          avatarColor: 'from-royal-600 to-violet-600',
-          bio: payload.bio || 'New UDAAN member.',
+        return {
+          ok: false,
+          error: apiErr.message || 'Registration failed. Please review your details and try again.',
         };
-
-        const updated = [...registeredUsers, newUser];
-        persistUsers(updated);
-        const { password: _removed, ...safeUser } = newUser;
-        setCurrentUser(safeUser);
-        storageService.set('current_user', safeUser);
-        return { ok: true, user: safeUser };
       }
     },
-    [registeredUsers, persistUsers, applySettings]
+    [applySettings]
   );
 
-  // Feature 3: Update Profile with ownership check
+  // Update profile in React state from fresh database response
   const updateProfile = useCallback(
-    async (updates) => {
-      if (!currentUser) return;
-      const nextCurrent = { ...currentUser, ...updates };
-      setCurrentUser(nextCurrent);
-      storageService.set('current_user', nextCurrent);
-
-      const nextList = registeredUsers.map((u) =>
-        u.id === currentUser.id ? { ...u, ...updates } : u
-      );
-      persistUsers(nextList);
-
-      // Also sync to backend API if authenticated
-      try {
-        await apiClient.students.updateProfile(updates);
-      } catch {
-        // Ignored in offline/demo fallback
+    (profileOrUserUpdates) => {
+      if (!profileOrUserUpdates) return;
+      if (profileOrUserUpdates.fullName || profileOrUserUpdates.studentId || profileOrUserUpdates.student_id) {
+        setCurrentProfile((prev) => ({ ...(prev || {}), ...profileOrUserUpdates }));
+        setCurrentUser((prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            name: profileOrUserUpdates.fullName || profileOrUserUpdates.name || prev.name,
+            ...(profileOrUserUpdates.email ? { email: profileOrUserUpdates.email } : {}),
+            ...(profileOrUserUpdates.studentId ? { studentId: profileOrUserUpdates.studentId } : {}),
+            ...(profileOrUserUpdates.student_id ? { student_id: profileOrUserUpdates.student_id } : {}),
+            department: profileOrUserUpdates.departmentName || profileOrUserUpdates.department || prev.department,
+            course: profileOrUserUpdates.courseName || profileOrUserUpdates.course || prev.course,
+            semester: profileOrUserUpdates.semester || prev.semester,
+            phone: profileOrUserUpdates.phone ?? prev.phone,
+            bio: profileOrUserUpdates.bio ?? prev.bio,
+            careerGoal: profileOrUserUpdates.careerGoal ?? prev.careerGoal,
+            profileCompletion: profileOrUserUpdates.profileCompletion ?? prev.profileCompletion,
+            accessibilityNeeds:
+              profileOrUserUpdates.assistiveDevices ||
+              profileOrUserUpdates.accessibilityNeeds ||
+              prev.accessibilityNeeds,
+          };
+        });
+      } else {
+        setCurrentUser((prev) => ({ ...(prev || {}), ...profileOrUserUpdates }));
       }
     },
-    [currentUser, registeredUsers, persistUsers]
+    []
   );
 
-  // Feature 7: Password Reset API bindings
+  // Password Reset API bindings
   const requestPasswordReset = useCallback(async (email) => {
     try {
       const res = await apiClient.auth.forgotPassword(email);
@@ -250,28 +186,16 @@ export function AuthProvider({ children }) {
     }
   }, []);
 
-  const resetPasswordDemo = useCallback(
-    async (email, newPassword) => {
-      try {
-        await apiClient.auth.resetPassword(email, 'UDAAN-2026', newPassword);
-        return { ok: true };
-      } catch {
-        const normalized = email.trim().toLowerCase();
-        const idx = registeredUsers.findIndex((u) => u.email.toLowerCase() === normalized);
-        if (idx === -1) {
-          return { ok: false, error: 'No account matches this email address.' };
-        }
-        const nextList = registeredUsers.map((u, i) =>
-          i === idx ? { ...u, password: newPassword } : u
-        );
-        persistUsers(nextList);
-        return { ok: true };
-      }
-    },
-    [registeredUsers, persistUsers]
-  );
+  const resetPasswordDemo = useCallback(async (email, newPassword) => {
+    try {
+      await apiClient.auth.resetPassword(email, 'UDAAN-2026', newPassword);
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err.message || 'Unable to reset password in backend.' };
+    }
+  }, []);
 
-  // Feature 2: Logout with token revocation
+  // Logout with backend token revocation and local token cleanup
   const logout = useCallback(async () => {
     try {
       await apiClient.auth.logout();
@@ -282,8 +206,6 @@ export function AuthProvider({ children }) {
       setCurrentProfile(null);
       storageService.remove('auth_token');
       storageService.remove('refresh_token');
-      storageService.remove('current_user');
-      storageService.remove('current_profile');
     }
   }, []);
 
@@ -293,7 +215,6 @@ export function AuthProvider({ children }) {
         currentUser,
         currentProfile,
         isHydrating,
-        registeredUsers,
         login,
         loginWithDemoRole,
         register,
