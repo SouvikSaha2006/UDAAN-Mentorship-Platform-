@@ -24,12 +24,25 @@ import {
   CartesianGrid,
 } from 'recharts';
 import { useAppData } from '../../context/AppDataContext';
+import { useToast } from '../../context/ToastContext';
+import { useRealtimeSync } from '../../hooks/useRealtimeSync';
 import { ADMIN_ANALYTICS_DATA } from '../../data/mockSupportAndComms';
 import PageHeader from '../../components/common/PageHeader';
 import StatCard from '../../components/common/StatCard';
 
 export default function AdminDashboard() {
   const { students, mentors, mentorshipRequests, sessions, supportRequests, learningPlans, departments } = useAppData();
+  const { showToast } = useToast();
+
+  // Real-time notification when a new student registers anywhere in the system
+  useRealtimeSync({
+    'student.registered': (newStudent) => {
+      showToast(
+        `Live: Student ${newStudent.fullName || newStudent.name} (${newStudent.studentId || newStudent.student_id}) enrolled. Count updated!`,
+        'info'
+      );
+    },
+  });
 
   const activeMentorships = mentorshipRequests.filter((r) => r.status === 'Accepted').length;
   const completedSessions = sessions.filter((s) => s.status === 'Completed').length;

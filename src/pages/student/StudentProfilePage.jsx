@@ -6,6 +6,7 @@ import PageHeader from '../../components/common/PageHeader';
 import Avatar from '../../components/common/Avatar';
 import Badge from '../../components/common/Badge';
 import { apiClient } from '../../services/apiClient';
+import { useRealtimeSync } from '../../hooks/useRealtimeSync';
 
 const ACCOMMODATION_OPTIONS = [
   'Screen Reader Support',
@@ -119,6 +120,45 @@ export default function StudentProfilePage() {
     );
   };
 
+  const studentDisplayId =
+    currentUser?.studentId ||
+    currentUser?.student_id ||
+    currentUser?.rollNumber ||
+    'UDN-2026-CSE-0001';
+
+  // Live real-time database subscription for cross-session profile re-hydration
+  useRealtimeSync({
+    'student.updated': (data) => {
+      const targetId = data.studentId || data.student_id;
+      const targetUserId = data.userId || data.user_id || data.id;
+      const currentUid = currentUser?.id || currentUser?.userId;
+
+      if (targetId === studentDisplayId || (currentUid && targetUserId === currentUid)) {
+        if (data.fullName || data.name) setName(data.fullName || data.name);
+        if (data.phone !== undefined) setPhone(data.phone || '');
+        if (data.bio !== undefined) setBio(data.bio || '');
+        if (data.careerGoal !== undefined) setCareerGoal(data.careerGoal || '');
+        if (data.department) setDepartment(data.department);
+        if (data.course) setCourse(data.course);
+        if (data.assistiveDevices || data.accessibilityNeeds) {
+          setNeeds(data.assistiveDevices || data.accessibilityNeeds || []);
+        }
+        updateProfile(data);
+        showToast('Profile re-hydrated with live updates from another active session.', 'info');
+      }
+    },
+    'academics.updated': async () => {
+      try {
+        const data = await apiClient.academics.getDepartments();
+        if (Array.isArray(data) && data.length > 0) {
+          setDepartments(data);
+        }
+      } catch {
+        // Ignored
+      }
+    },
+  });
+
   const handleSave = async (e) => {
     e.preventDefault();
     setIsSaving(true);
@@ -168,8 +208,6 @@ export default function StudentProfilePage() {
       setIsSaving(false);
     }
   };
-
-  const studentDisplayId = currentUser?.studentId || currentUser?.student_id || currentUser?.rollNumber || 'UDN-2026-CSE-0001';
 
   return (
     <div>

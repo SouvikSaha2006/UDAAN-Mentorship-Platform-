@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
 import { apiClient } from '../services/apiClient';
+import { useRealtimeSync } from '../hooks/useRealtimeSync';
 import {
   MENTORS_DIRECTORY,
   STUDENTS_DIRECTORY,
@@ -67,6 +68,72 @@ export function AppDataProvider({ children }) {
       isMounted = false;
     };
   }, []);
+
+  // Listen to live database SSE events across sessions
+  useRealtimeSync({
+    'student.registered': (data) => {
+      setStudents((prev) => {
+        const sid = data.studentId || data.student_id;
+        if (prev.some((s) => s.studentId === sid || s.id === data.id)) {
+          return prev;
+        }
+        const formatted = {
+          id: data.id || `stu-${Date.now()}`,
+          studentId: sid,
+          name: data.fullName || data.name,
+          email: data.email || `${sid?.toLowerCase()}@udaan.edu`,
+          rollNumber: data.rollNumber || data.roll_number || sid,
+          department: data.department || 'General',
+          course: data.course || 'B.Tech',
+          semester:
+            typeof data.semester === 'number'
+              ? `${data.semester}${data.semester === 1 ? 'st' : data.semester === 2 ? 'nd' : data.semester === 3 ? 'rd' : 'th'} Semester`
+              : data.semester || '1st Semester',
+          accessibilityProfile:
+            data.disabilityType ||
+            (data.assistiveDevices?.length > 0 ? data.assistiveDevices[0] : 'Standard Support'),
+          progressScore: data.profileCompletion || 70,
+          status: data.isActive ? 'Active' : 'Deactivated',
+          attendance: 90,
+          cgpa: 8.0,
+        };
+        return [formatted, ...prev];
+      });
+
+      addNotification({
+        category: 'Registration',
+        title: 'New Student Enrolled',
+        message: `${data.fullName || data.name} (${data.studentId || data.student_id}) enrolled in ${data.department || 'UDAAN'}.`,
+      });
+    },
+    'student.updated': (data) => {
+      setStudents((prev) =>
+        prev.map((s) => {
+          if (s.studentId === (data.studentId || data.student_id) || s.id === data.id) {
+            return {
+              ...s,
+              name: data.fullName || data.name || s.name,
+              department: data.department || s.department,
+              course: data.course || s.course,
+              progressScore: data.profileCompletion ?? s.progressScore,
+              accessibilityProfile: data.disabilityType || s.accessibilityProfile,
+            };
+          }
+          return s;
+        })
+      );
+    },
+    'academics.updated': async () => {
+      try {
+        const liveDepts = await apiClient.academics.getDepartments();
+        if (Array.isArray(liveDepts) && liveDepts.length > 0) {
+          setDepartments(liveDepts);
+        }
+      } catch {
+        // Ignored
+      }
+    },
+  });
 
   const addNotification = useCallback(
     ({ category = 'System', title, message }) => {

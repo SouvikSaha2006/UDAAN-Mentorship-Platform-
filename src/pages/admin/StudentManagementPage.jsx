@@ -7,6 +7,7 @@ import Badge from '../../components/common/Badge';
 import Modal from '../../components/common/Modal';
 import { exportToCSV } from '../../utils/helpers';
 import { apiClient } from '../../services/apiClient';
+import { useRealtimeSync } from '../../hooks/useRealtimeSync';
 
 export default function StudentManagementPage() {
   const { students: fallbackStudents, addStudentRecord } = useAppData();
@@ -45,6 +46,29 @@ export default function StudentManagementPage() {
     }, 250);
     return () => clearTimeout(handler);
   }, [query, loadStudents]);
+
+  // Real-time synchronization of newly registered students and updates across tabs
+  useRealtimeSync({
+    'student.registered': (newStudent) => {
+      const sid = newStudent.studentId || newStudent.student_id;
+      setApiStudents((prev) => {
+        if (prev.some((s) => s.studentId === sid || s.id === newStudent.id)) {
+          return prev;
+        }
+        return [newStudent, ...prev];
+      });
+      showToast(
+        `Live: New student registered: ${newStudent.fullName || newStudent.name} (${sid}) · ${newStudent.disabilityType || 'Standard Accommodation'}`,
+        'info'
+      );
+    },
+    'student.updated': (updated) => {
+      const sid = updated.studentId || updated.student_id;
+      setApiStudents((prev) =>
+        prev.map((s) => (s.studentId === sid || s.id === updated.id ? { ...s, ...updated } : s))
+      );
+    },
+  });
 
   // Render live students from Django REST API
   const displayStudents = useBackend

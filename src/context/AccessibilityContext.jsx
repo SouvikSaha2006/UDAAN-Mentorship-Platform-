@@ -1,6 +1,7 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { storageService } from '../services/storageService';
 import { apiClient } from '../services/apiClient';
+import { useRealtimeSync } from '../hooks/useRealtimeSync';
 
 const DEFAULT_A11Y_SETTINGS = {
   fontScale: 1,
@@ -27,6 +28,7 @@ export function AccessibilityProvider({ children }) {
   });
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [toolbarOpen, setToolbarOpen] = useState(false);
+  const isRemoteSyncRef = useRef(false);
 
   useEffect(() => {
     storageService.set('accessibility', settings);
@@ -46,10 +48,15 @@ export function AccessibilityProvider({ children }) {
   }, [settings]);
 
   // Feature 5: Debounce-sync UI preference toggles to PUT /api/v1/students/me/accessibility
-  // whenever a user is logged in, while keeping localStorage fallback for logged-out visitors.
+  // whenever a user is logged in, while skipping if triggered by a remote SSE event.
   useEffect(() => {
     const token = storageService.get('auth_token', null);
     if (!token) return;
+
+    if (isRemoteSyncRef.current) {
+      isRemoteSyncRef.current = false;
+      return;
+    }
 
     const handler = setTimeout(async () => {
       try {
@@ -61,6 +68,14 @@ export function AccessibilityProvider({ children }) {
 
     return () => clearTimeout(handler);
   }, [settings]);
+
+  // Listen to live database SSE events across sessions/tabs
+  useRealtimeSync({
+    'accessibility.updated': (a11yData) => {
+      isRemoteSyncRef.current = true;
+      applySettings(a11yData);
+    },
+  });
 
   const applySettings = useCallback((newSettings) => {
     if (!newSettings || typeof newSettings !== 'object') return;
