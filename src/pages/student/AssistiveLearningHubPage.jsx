@@ -10,11 +10,11 @@ import {
   Sparkles,
   Copy,
   Check,
+  ArrowDown,
 } from 'lucide-react';
 import { useAppData } from '../../context/AppDataContext';
 import { useAccessibility } from '../../context/AccessibilityContext';
 import { useToast } from '../../context/ToastContext';
-import PageHeader from '../../components/common/PageHeader';
 import Badge from '../../components/common/Badge';
 
 export default function AssistiveLearningHubPage() {
@@ -106,18 +106,89 @@ export default function AssistiveLearningHubPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        badge="Assistive Learning Hub"
-        title="Accessible Study Studio"
-        description="Listen to study transcripts with adjustable reading speed, dictate voice notes, and switch to simplified reading mode."
-      />
+      <section className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-navy-950 via-navy-900 to-navy-800 p-6 text-white shadow-elevated sm:p-8 lg:p-10">
+        <div
+          className="pointer-events-none absolute inset-0 opacity-30"
+          style={{
+            backgroundImage:
+              'radial-gradient(circle at 15% 15%, #3b68f6 0%, transparent 42%), radial-gradient(circle at 85% 30%, #8b5cf6 0%, transparent 38%)',
+          }}
+          aria-hidden="true"
+        />
+        <div className="relative grid items-center gap-8 lg:grid-cols-12">
+          <div className="lg:col-span-7">
+            <span className="mb-5 inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3.5 py-1.5 text-xs font-semibold text-amber-200">
+              <Sparkles className="h-4 w-4" aria-hidden="true" />
+              UDAAN · Accessible Learning Hub
+            </span>
+            <h1 className="max-w-2xl text-3xl font-extrabold leading-tight tracking-tight sm:text-4xl lg:text-5xl">
+              Learn in a way that works for you.
+            </h1>
+            <p className="mt-4 max-w-2xl text-sm leading-relaxed text-slate-200 sm:text-base">
+              Explore accessible study materials, listen at your own pace, simplify reading, and capture ideas with voice or typed notes.
+            </p>
+            <div className="mt-7 flex flex-wrap gap-3">
+              <a
+                href="#study-materials"
+                className="inline-flex items-center gap-2 rounded-xl bg-royal-500 px-5 py-3 text-sm font-bold text-white shadow-elevated transition-colors hover:bg-royal-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+              >
+                Explore study tools <ArrowDown className="h-4 w-4" aria-hidden="true" />
+              </a>
+              <a
+                href="#study-notes"
+                className="inline-flex items-center gap-2 rounded-xl border border-white/20 bg-white/10 px-5 py-3 text-sm font-semibold text-white transition-colors hover:bg-white/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+              >
+                Open study notes
+              </a>
+            </div>
+          </div>
+
+          <div className="lg:col-span-5">
+            <div className="rounded-2xl border border-white/20 bg-white/95 p-5 text-slate-900 shadow-elevated dark:bg-slate-900 dark:text-white sm:p-6">
+              <div className="flex items-center justify-between gap-3 border-b border-slate-100 pb-4 dark:border-slate-800">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-wider text-royal-600 dark:text-royal-400">
+                    Your study space
+                  </p>
+                  <h2 className="mt-1 text-base font-extrabold">Accessible by design</h2>
+                </div>
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600 dark:bg-emerald-950/60 dark:text-emerald-300">
+                  <BookOpen className="h-5 w-5" aria-hidden="true" />
+                </div>
+              </div>
+              <ul className="mt-4 space-y-3 text-sm text-slate-700 dark:text-slate-300">
+                <li className="flex items-center gap-3">
+                  <Volume2 className="h-4 w-4 shrink-0 text-royal-600 dark:text-royal-400" aria-hidden="true" />
+                  Listen with adjustable speech speed
+                </li>
+                <li className="flex items-center gap-3">
+                  <Sparkles className="h-4 w-4 shrink-0 text-violet-600 dark:text-violet-400" aria-hidden="true" />
+                  Switch to simplified reading mode
+                </li>
+                <li className="flex items-center gap-3">
+                  <Mic className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" aria-hidden="true" />
+                  Dictate or type study notes
+                </li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </section>
 
       <div className="grid lg:grid-cols-12 gap-6">
         {/* Material Selector */}
-        <div className="lg:col-span-4 space-y-3">
-          <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500">
-            Accessible Materials & Transcripts
-          </h2>
+        <section id="study-materials" className="lg:col-span-4 space-y-3 scroll-mt-6">
+          <div className="card-surface p-5">
+            <p className="text-xs font-bold uppercase tracking-wider text-royal-600 dark:text-royal-400">
+              Start learning
+            </p>
+            <h2 className="mt-1 text-lg font-extrabold text-navy-950 dark:text-white">
+              Study materials
+            </h2>
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+              Choose a resource to read or listen to.
+            </p>
+          </div>
           {materials.map((mat) => {
             const active = selectedMaterial?.id === mat.id;
             return (
@@ -144,12 +215,12 @@ export default function AssistiveLearningHubPage() {
               </button>
             );
           })}
-        </div>
+        </section>
 
         {/* Reader & Speech Studio */}
         <div className="lg:col-span-8 space-y-6">
           {/* TTS Reader */}
-          <div className="card-surface p-6 space-y-4">
+          <section id="study-reader" className="card-surface scroll-mt-6 p-6 space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-4 border-b border-slate-100 dark:border-slate-800">
               <div>
                 <h2 className="text-lg font-extrabold text-slate-900 dark:text-white">
@@ -226,10 +297,10 @@ export default function AssistiveLearningHubPage() {
               </div>
               <p className="text-slate-800 dark:text-slate-100 whitespace-pre-line">{customText}</p>
             </div>
-          </div>
+          </section>
 
           {/* Speech-to-Text Note Taker */}
-          <div className="card-surface p-6 space-y-4">
+          <section id="study-notes" className="card-surface scroll-mt-6 p-6 space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
               <div>
                 <h2 className="text-base font-bold text-slate-900 dark:text-white">
@@ -273,7 +344,7 @@ export default function AssistiveLearningHubPage() {
               className="input-field"
               placeholder="Your dictated or typed study notes appear here..."
             />
-          </div>
+          </section>
         </div>
       </div>
     </div>

@@ -57,7 +57,7 @@ const ROLE_MENUS = {
       ],
     },
     {
-      group: 'Academics & Assistive',
+      group: 'Learning & Academics',
       items: [
         { label: 'Academic Dashboard', to: '/student/academics', icon: GraduationCap },
         { label: 'Timetable', to: '/student/timetable', icon: Clock },
@@ -65,7 +65,7 @@ const ROLE_MENUS = {
         { label: 'Assignments', to: '/student/assignments', icon: FileText },
         { label: 'Examinations', to: '/student/examinations', icon: ClipboardCheck },
         { label: 'Study Materials', to: '/student/materials', icon: BookOpen },
-        { label: 'Assistive Learning Hub', to: '/student/assistive-hub', icon: Headphones },
+        { label: 'Learning Hub', to: '/student/assistive-hub', icon: Headphones },
         { label: 'Accessibility Settings', to: '/student/accessibility', icon: Accessibility },
       ],
     },
